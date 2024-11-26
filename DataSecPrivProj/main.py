@@ -14,198 +14,178 @@ import math
 import base64
 from faker import Faker
 
-DATABASE_NAME = 'tellme.db'
+
+
+############################################################
+#encryption and decryption 
+############################################################
+TEST_MASTER_KEY = b'super_secure_master_key'  # store this better or generate randomly and store
+
+# Derive AES key using PBKDF2
+def derive_key(password, salt):
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+        backend=default_backend()
+    )
+    return kdf.derive(password)
+
+# AES Encryption
+def encrypt_data(data, key):
+    iv = os.urandom(16)  # Random IV
+    cipher = Cipher(algorithms.AES(key), modes.CFB(iv), backend=default_backend())
+    encryptor = cipher.encryptor()
+    ciphertext = encryptor.update(data.encode()) + encryptor.finalize()
+    return base64.b64encode(iv + ciphertext).decode()
+
+# AES Decryption
+def decrypt_data(encrypted_data, key):
+    encrypted_data = base64.b64decode(encrypted_data)
+    iv, ciphertext = encrypted_data[:16], encrypted_data[16:]
+    cipher = Cipher(algorithms.AES(key), modes.CFB(iv), backend=default_backend())
+    decryptor = cipher.decryptor()
+    return (decryptor.update(ciphertext) + decryptor.finalize()).decode()
+
+# Securely generate salt
+def generate_salt():
+    return os.urandom(16)
+
+
+
 
 ##################################################################
 # Database creation if not made and fill
 ##################################################################
+DATABASE_NAME = 'tellmeee.db'
+
 # Initialize Faker instance
 fake = Faker()
 
 # Connect to SQLite database (or create if it doesn't exist)
 conn = sqlite3.connect(DATABASE_NAME)
 cursor = conn.cursor()
+# Connect to SQLite database (or create if it doesn't exist)
+conn = sqlite3.connect(DATABASE_NAME)
+cursor = conn.cursor()
 
-# Create the 'users' table if it doesn't exist
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,  -- Primary key
-        username TEXT NOT NULL UNIQUE,         -- Username (unique)
-        password TEXT NOT NULL,                -- Password (hashed)
-        salt TEXT NOT NULL,                    -- Salt for password hashing
-        user_type TEXT NOT NULL                -- User type (e.g., 'admin', 'regular')
-    )
-''')
+# Create tables with salt in patients table
+cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    user_type TEXT NOT NULL
+)''')
 
-# Create the 'patients' table if it doesn't exist
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS patients (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,  -- Primary key
-        user_id INTEGER,                       -- Foreign key to link to the 'users' table
-        first_name TEXT NOT NULL,              -- Patient's first name
-        last_name TEXT NOT NULL,               -- Patient's last name
-        gender BOOLEAN NOT NULL,               -- Gender (True = male, False = female)
-        age INTEGER NOT NULL,                  -- Age
-        weight REAL NOT NULL,                  -- Weight (float, lbs)
-        height REAL NOT NULL,                  -- Height (float, feet)
-        health_history TEXT,                   -- Health history (text)
-        FOREIGN KEY (user_id) REFERENCES users(id)  -- Foreign key constraint
-    )
-''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS patients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    gender BOOLEAN NOT NULL,
+    age INTEGER NOT NULL,
+    weight REAL NOT NULL,
+    height REAL NOT NULL,
+    health_history TEXT,
+    salt TEXT NOT NULL,  -- Added salt field for each patient
+    FOREIGN KEY (user_id) REFERENCES users(id)
+)''')
 
-# Commit changes to create tables
 conn.commit()
 
-# Check how many records exist in the 'patients' table
+# Check if the "test" user exists, if not add it
+cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'test'")
+if cursor.fetchone()[0] == 0:
+    salt = generate_salt()
+    key = derive_key(TEST_MASTER_KEY, salt)
+    encrypted_password = encrypt_data('pass', key)
+    cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
+                   ('test', encrypted_password, base64.b64encode(salt).decode(), 'admin'))
+
+# Generate and encrypt fake patient data
 cursor.execute("SELECT COUNT(*) FROM patients")
 patient_count = cursor.fetchone()[0]
 
 if patient_count < 100:
-    # Calculate how many more records need to be generated
-    records_to_generate = 100 - patient_count
-    
-    # Check if the "test" user exists, if not add it
-    cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'test'")
-    test_user_exists = cursor.fetchone()[0] > 0
-    
-    if not test_user_exists:
-        # Insert a user with username "test" and password "pass"
-        cursor.execute('''
-            INSERT INTO users (username, password, salt, user_type)
-            VALUES (?, ?, ?, ?)
-        ''', ('test', 'pass', fake.uuid4(), 'admin'))  # "test" user with password "pass"
-        conn.commit()  # Commit after inserting the test user
-    else:
-        print("Test user already exists in the database.")
-    
-    # Now generate the remaining records (other users and patients)
-    for _ in range(records_to_generate):
-        # Generate fake user data
+    for _ in range(100 - patient_count):
         username = fake.user_name()
-        password = fake.password()  # In a real case, you'd hash this
-        salt = fake.uuid4()  # Using a UUID as a salt
-        user_type = random.choice(['regular', 'admin'])  # Random user type
-        
-        # Insert user into the 'users' table
-        cursor.execute(''' 
-            INSERT INTO users (username, password, salt, user_type)
-            VALUES (?, ?, ?, ?)
-        ''', (username, password, salt, user_type))
-        
-        # Fetch the user_id of the last inserted user
+        password = fake.password()
+        user_salt = generate_salt()
+        user_key = derive_key(TEST_MASTER_KEY, user_salt)
+        encrypted_password = encrypt_data(password, user_key)
+
+        cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
+                       (username, encrypted_password, base64.b64encode(user_salt).decode(), random.choice(['regular', 'admin'])))
         user_id = cursor.lastrowid
-        
-        # Generate fake patient data
+
+        # Generate and encrypt patient data
+        patient_salt = generate_salt()
+        patient_key = derive_key(TEST_MASTER_KEY, patient_salt)
+
         first_name = fake.first_name()
         last_name = fake.last_name()
-        gender = random.choice([True, False])  # True for male, False for female
-        age = random.randint(18, 80)  # Random age between 18 and 80
-        
-        # Weight: Random weight between 110 lbs and 220 lbs (floating-point)
-        weight = round(random.uniform(110, 220), 2)  # Weight in lbs
-        
-        # Height: Random height between 4'6" and 6'5" (in feet and inches)
-        feet = random.randint(4, 6)  # Height in feet (4 to 6 feet)
-        inches = random.randint(0, 11)  # Height in inches (0 to 11 inches)
-        # Convert feet and inches to a floating-point value (feet + inches/12)
-        height = round(feet + inches / 12, 2)  # Height in feet as a float
-        
-        # Health history: Generate some random health history text
+        gender = random.choice([True, False])
+        age = random.randint(18, 80)
+        weight = round(random.uniform(110, 220), 2)
+        height = round(random.uniform(4.5, 6.5), 2)
         health_history = fake.text(max_nb_chars=200)
-        
-        # Insert patient data into the 'patients' table
-        cursor.execute('''
-            INSERT INTO patients (user_id, first_name, last_name, gender, age, weight, height, health_history)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (user_id, first_name, last_name, gender, age, weight, height, health_history))
 
-    # Commit the changes to the database
-    conn.commit()
+        encrypted_first_name = encrypt_data(first_name, patient_key)
+        encrypted_last_name = encrypt_data(last_name, patient_key)
+        encrypted_health_history = encrypt_data(health_history, patient_key)
 
-    print(f"{records_to_generate} new patients added to the database.")
+        cursor.execute('''INSERT INTO patients (user_id, first_name, last_name, gender, age, weight, height, health_history, salt)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                       (user_id, encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history,
+                        base64.b64encode(patient_salt).decode()))
 
-else:
-    print("There are already 100 or more patients in the database.")
-
-# Close the connection
+conn.commit()
 conn.close()
 
+
+
+
 #############################################################################
-#quick test view to see all patients and data
+#get data from patients database and view in window
 ############################################################################
-# Function to fetch patients data from the database
 def fetch_patients():
-    conn = sqlite3.connect(DATABASE_NAME)  # Connect to the SQLite database
-    cursor = conn.cursor()
-    
-    # Fetch data from the 'patients' table
-    cursor.execute("SELECT first_name, last_name, gender, age, weight, height, health_history FROM patients")
-    rows = cursor.fetchall()  # Get all rows of the table
-    
-    conn.close()
-    return rows
-
-# Function to display the data in the Treeview widget
-def display_patients():
-    # Fetch the patient data
-    patients = fetch_patients()
-
-    # Clear the previous data in the Treeview
-    for row in tree.get_children():
-        tree.delete(row)
-    
-    # Insert new data into the Treeview
-    for patient in patients:
-        first_name, last_name, gender, age, weight, height, health_history = patient
-        gender_str = 'Male' if gender else 'Female'  # Convert gender to a string
-        tree.insert("", "end", values=(first_name, last_name, gender_str, age, weight, height, health_history))
-
-# Function to handle login verification
-def login():
-    username = username_entry.get()
-    password = password_entry.get()
-
-    # Connect to the database and check the username and password
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
-    user = cursor.fetchone()
-    
+    cursor.execute("SELECT first_name, last_name, gender, age, weight, height, health_history, salt FROM patients")
+    rows = cursor.fetchall()
     conn.close()
 
-    # If a user is found, show the patient list
-    if user:
-        login_window.destroy()  # Close the login window
-        show_patient_list()  # Show the patient list
-    else:
-        messagebox.showerror("Login Failed", "Invalid username or password. Please try again.")
+    decrypted_rows = []
+    for row in rows:
+        encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history, stored_salt = row
+        stored_salt = base64.b64decode(stored_salt)
+        key = derive_key(TEST_MASTER_KEY, stored_salt)  # Derive the key
+        
+        decrypted_rows.append((
+            decrypt_data(encrypted_first_name, key),
+            decrypt_data(encrypted_last_name, key),
+            'Male' if gender else 'Female',
+            age,
+            weight,
+            height,
+            decrypt_data(encrypted_health_history, key),
+        ))
 
-# Function to create the login window
-def create_login_window():
-    global login_window, username_entry, password_entry
-    
-    login_window = tk.Tk()
-    login_window.title("Login")
+    return decrypted_rows
 
-    # Username label and entry
-    username_label = tk.Label(login_window, text="Username")
-    username_label.pack(pady=5)
-    username_entry = tk.Entry(login_window)
-    username_entry.pack(pady=5)
+def display_patients():
+    patients = fetch_patients()  # Fetch and decrypt patient data
 
-    # Password label and entry
-    password_label = tk.Label(login_window, text="Password")
-    password_label.pack(pady=5)
-    password_entry = tk.Entry(login_window, show="*")
-    password_entry.pack(pady=5)
+    # Clear existing data
+    for row in tree.get_children():
+        tree.delete(row)
 
-    # Login button
-    login_button = tk.Button(login_window, text="Login", command=login)
-    login_button.pack(pady=10)
+    # Insert decrypted data into the Treeview
+    for patient in patients:
+        tree.insert("", "end", values=patient)
 
-    # Run the login window
-    login_window.mainloop()
 
 # Function to show the patient list window
 def show_patient_list():
@@ -250,6 +230,64 @@ def show_patient_list():
 
     # Run the Tkinter main loop for the patient list window
     patient_window.mainloop()
+
+
+
+###################################################
+#login window and functionality
+######################################################
+
+def login():
+    username = username_entry.get()
+    password = password_entry.get()
+
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    
+    # Fetch user info for the entered username
+    cursor.execute("SELECT password, salt FROM users WHERE username = ?", (username,))
+    user = cursor.fetchone()
+    
+    if user:
+        encrypted_password, stored_salt = user
+        stored_salt = base64.b64decode(stored_salt)
+        key = derive_key(TEST_MASTER_KEY, stored_salt)  # Derive the key
+        decrypted_password = decrypt_data(encrypted_password, key)
+        
+        if password == decrypted_password:  # Compare the decrypted password
+            login_window.destroy()  # Close login window
+            show_patient_list()  # Show the patient list
+            conn.close()
+            return
+    
+    conn.close()
+    messagebox.showerror("Login Failed", "Invalid username or password. Please try again.")
+
+# Function to create the login window
+def create_login_window():
+    global login_window, username_entry, password_entry
+    
+    login_window = tk.Tk()
+    login_window.title("Login")
+
+    # Username label and entry
+    username_label = tk.Label(login_window, text="Username")
+    username_label.pack(pady=5)
+    username_entry = tk.Entry(login_window)
+    username_entry.pack(pady=5)
+
+    # Password label and entry
+    password_label = tk.Label(login_window, text="Password")
+    password_label.pack(pady=5)
+    password_entry = tk.Entry(login_window, show="*")
+    password_entry.pack(pady=5)
+
+    # Login button
+    login_button = tk.Button(login_window, text="Login", command=login)
+    login_button.pack(pady=10)
+
+    # Run the login window
+    login_window.mainloop()
 
 # Start the program by creating the login window
 create_login_window()
