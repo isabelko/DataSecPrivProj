@@ -246,10 +246,89 @@ def show_patient_list(is_admin):
     button = tk.Button(patient_window, text="Load Patients", command=lambda: display_patients(is_admin))
     button.pack(pady=10)
 
+    # Add a button to open the add patient window (for admins)
+    if(is_admin):
+        add_patient_button = tk.Button(patient_window, text="Add Patient", command=lambda: add_patient(is_admin))
+        add_patient_button.pack(pady=10)
+
+
     # Run the Tkinter main loop for the patient list window
     patient_window.mainloop()
 
 
+def add_patient(is_admin):
+    if not is_admin:
+        messagebox.showerror("Permission Denied", "You do not have the necessary privileges to add a patient.")
+        return
+
+    # Create a new window to get patient data
+    add_patient_window = tk.Toplevel()
+    add_patient_window.title("Add Patient")
+
+    # Define labels and entry fields for patient details
+    tk.Label(add_patient_window, text="First Name").grid(row=0, column=0, padx=5, pady=5)
+    first_name_entry = tk.Entry(add_patient_window)
+    first_name_entry.grid(row=0, column=1, padx=5, pady=5)
+
+    tk.Label(add_patient_window, text="Last Name").grid(row=1, column=0, padx=5, pady=5)
+    last_name_entry = tk.Entry(add_patient_window)
+    last_name_entry.grid(row=1, column=1, padx=5, pady=5)
+
+    tk.Label(add_patient_window, text="Gender (M/F)").grid(row=2, column=0, padx=5, pady=5)
+    gender_entry = tk.Entry(add_patient_window)
+    gender_entry.grid(row=2, column=1, padx=5, pady=5)
+
+    tk.Label(add_patient_window, text="Age").grid(row=3, column=0, padx=5, pady=5)
+    age_entry = tk.Entry(add_patient_window)
+    age_entry.grid(row=3, column=1, padx=5, pady=5)
+
+    tk.Label(add_patient_window, text="Weight").grid(row=4, column=0, padx=5, pady=5)
+    weight_entry = tk.Entry(add_patient_window)
+    weight_entry.grid(row=4, column=1, padx=5, pady=5)
+
+    tk.Label(add_patient_window, text="Height").grid(row=5, column=0, padx=5, pady=5)
+    height_entry = tk.Entry(add_patient_window)
+    height_entry.grid(row=5, column=1, padx=5, pady=5)
+
+    tk.Label(add_patient_window, text="Health History").grid(row=6, column=0, padx=5, pady=5)
+    health_history_entry = tk.Entry(add_patient_window)
+    health_history_entry.grid(row=6, column=1, padx=5, pady=5)
+
+    # Function to encrypt and insert the new patient data into the database
+    def save_patient():
+        first_name = first_name_entry.get()
+        last_name = last_name_entry.get()
+        gender = gender_entry.get().upper() == 'M'  # Convert to boolean (True for Male, False for Female)
+        age = int(age_entry.get())
+        weight = float(weight_entry.get())
+        height = float(height_entry.get())
+        health_history = health_history_entry.get()
+
+        # Generate salt and derive key for encryption
+        salt = generate_salt()
+        key = derive_key(TEST_MASTER_KEY, salt)
+
+        # Encrypt sensitive patient data
+        encrypted_first_name = encrypt_data(first_name, key)
+        encrypted_last_name = encrypt_data(last_name, key)
+        encrypted_health_history = encrypt_data(health_history, key)
+
+        # Insert patient data into the database
+        conn = sqlite3.connect(DATABASE_NAME)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO patients (first_name, last_name, gender, age, weight, height, health_history, salt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history, base64.b64encode(salt).decode()))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("Success", "Patient added successfully.")
+        add_patient_window.destroy()
+
+    # Add a button to save the patient data
+    save_button = tk.Button(add_patient_window, text="Add Patient", command=save_patient)
+    save_button.grid(row=7, column=0, columnspan=2, pady=10)
 
 
 
