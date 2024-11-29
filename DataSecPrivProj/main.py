@@ -14,7 +14,7 @@ import math
 import base64
 from faker import Faker
 
-
+is_admin = False
 
 ############################################################
 #encryption and decryption 
@@ -58,7 +58,7 @@ def generate_salt():
 ##################################################################
 # Database creation if not made and fill
 ##################################################################
-DATABASE_NAME = 'tellmeeeeeee.db'
+DATABASE_NAME = 'fixed.db'
 
 # Initialize Faker instance
 fake = Faker()
@@ -100,6 +100,15 @@ if cursor.fetchone()[0] == 0:
     encrypted_password = encrypt_data('pass', key)
     cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
                    ('test', encrypted_password, base64.b64encode(salt).decode(), 'h'))
+
+# Check if the "test2" user exists, if not add it
+cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'test2'")
+if cursor.fetchone()[0] == 0:
+    salt = generate_salt()
+    key = derive_key(TEST_MASTER_KEY, salt)
+    encrypted_password = encrypt_data('pass', key)
+    cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
+                   ('test2', encrypted_password, base64.b64encode(salt).decode(), 'r'))
 
 # Generate and encrypt fake patient data
 cursor.execute("SELECT COUNT(*) FROM patients")
@@ -149,7 +158,7 @@ conn.close()
 #############################################################################
 #get data from patients database and view in window
 ############################################################################
-def fetch_patients():
+def fetch_patients(is_admin):
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT first_name, last_name, gender, age, weight, height, health_history, salt FROM patients")
@@ -161,21 +170,32 @@ def fetch_patients():
         encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history, stored_salt = row
         stored_salt = base64.b64decode(stored_salt)
         key = derive_key(TEST_MASTER_KEY, stored_salt)  # Derive the key
-        
-        decrypted_rows.append((
-            decrypt_data(encrypted_first_name, key),
-            decrypt_data(encrypted_last_name, key),
-            'Male' if gender else 'Female',
-            age,
-            weight,
-            height,
-            decrypt_data(encrypted_health_history, key),
-        ))
+
+        if is_admin:
+            decrypted_rows.append((
+                decrypt_data(encrypted_first_name, key),
+                decrypt_data(encrypted_last_name, key),
+                'Male' if gender else 'Female',
+                age,
+                weight,
+                height,
+                decrypt_data(encrypted_health_history, key),
+            ))
+        else:
+            decrypted_rows.append((
+                "Anonymous",
+                "Anonymous",
+                'Male' if gender else 'Female',
+                age,
+                weight,
+                height,
+                decrypt_data(encrypted_health_history, key),
+            ))
 
     return decrypted_rows
 
-def display_patients():
-    patients = fetch_patients()  # Fetch and decrypt patient data
+def display_patients(is_admin):
+    patients = fetch_patients(is_admin)  # Fetch and decrypt patient data
 
     # Clear existing data
     for row in tree.get_children():
@@ -187,9 +207,8 @@ def display_patients():
 
 
 # Function to show the patient list window
-def show_patient_list():
+def show_patient_list(is_admin):
     global tree
-
     # Create a new window for patient list
     patient_window = tk.Tk()
     patient_window.title("Patients Database Viewer")
@@ -224,11 +243,13 @@ def show_patient_list():
     tree.pack(padx=10, pady=10)
 
     # Add a button to fetch and display patient data
-    button = tk.Button(patient_window, text="Load Patients", command=display_patients)
+    button = tk.Button(patient_window, text="Load Patients", command=lambda: display_patients(is_admin))
     button.pack(pady=10)
 
     # Run the Tkinter main loop for the patient list window
     patient_window.mainloop()
+
+
 
 
 
@@ -243,19 +264,22 @@ def login():
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     
-    # Fetch user info for the entered username
-    cursor.execute("SELECT password, salt FROM users WHERE username = ?", (username,))
+    # Fetch user info for the entered username, including user_type
+    cursor.execute("SELECT password, salt, user_type FROM users WHERE username = ?", (username,))
     user = cursor.fetchone()
     
     if user:
-        encrypted_password, stored_salt = user
+        encrypted_password, stored_salt, user_type = user  # Retrieve user_type
         stored_salt = base64.b64decode(stored_salt)
         key = derive_key(TEST_MASTER_KEY, stored_salt)  # Derive the key
         decrypted_password = decrypt_data(encrypted_password, key)
         
         if password == decrypted_password:  # Compare the decrypted password
             login_window.destroy()  # Close login window
-            show_patient_list()  # Show the patient list
+            
+            # Determine if the user is an admin (user_type is 'h') or regular (user_type is 'r')
+            is_admin = (user_type == 'h')
+            show_patient_list(is_admin)  # Show the patient list with is_admin status
             conn.close()
             return
     
