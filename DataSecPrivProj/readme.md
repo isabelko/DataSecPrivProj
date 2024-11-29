@@ -39,4 +39,4 @@ python main.py in terminal to run
 4. open to a table and hit left arrow to open up the db (it will open in split window)
 
 
-can log into database with username test and password pass (only pass and username that works every time)
+can log into database with username test and password pass for h permissions and can log in with test2 as username and pass as password for r permissions (only 2 pass and usernames that works every time)
