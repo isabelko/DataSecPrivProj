@@ -58,14 +58,11 @@ def generate_salt():
 ##################################################################
 # Database creation if not made and fill
 ##################################################################
-DATABASE_NAME = 'tellmeee.db'
+DATABASE_NAME = 'tellmeeeeeee.db'
 
 # Initialize Faker instance
 fake = Faker()
 
-# Connect to SQLite database (or create if it doesn't exist)
-conn = sqlite3.connect(DATABASE_NAME)
-cursor = conn.cursor()
 # Connect to SQLite database (or create if it doesn't exist)
 conn = sqlite3.connect(DATABASE_NAME)
 cursor = conn.cursor()
@@ -102,7 +99,7 @@ if cursor.fetchone()[0] == 0:
     key = derive_key(TEST_MASTER_KEY, salt)
     encrypted_password = encrypt_data('pass', key)
     cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
-                   ('test', encrypted_password, base64.b64encode(salt).decode(), 'admin'))
+                   ('test', encrypted_password, base64.b64encode(salt).decode(), 'h'))
 
 # Generate and encrypt fake patient data
 cursor.execute("SELECT COUNT(*) FROM patients")
@@ -115,9 +112,11 @@ if patient_count < 100:
         user_salt = generate_salt()
         user_key = derive_key(TEST_MASTER_KEY, user_salt)
         encrypted_password = encrypt_data(password, user_key)
+        user_type = random.choice(['h', 'r'])  # 'h' for no first last name, 'r' for all
+
 
         cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
-                       (username, encrypted_password, base64.b64encode(user_salt).decode(), random.choice(['regular', 'admin'])))
+                       (username, encrypted_password, base64.b64encode(user_salt).decode(), user_type))
         user_id = cursor.lastrowid
 
         # Generate and encrypt patient data
