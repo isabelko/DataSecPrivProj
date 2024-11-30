@@ -14,12 +14,22 @@ import math
 import base64
 from faker import Faker
 
+# STart with flase admin
 is_admin = False
 
 ############################################################
 #encryption and decryption 
 ############################################################
-TEST_MASTER_KEY = b'super_secure_master_key'  # store this better or generate randomly and store
+#TEST_MASTER_KEY = b'super_secure_master_key'  # store this better or generate randomly and store
+#MASTER KEY STUFF
+TEST_MASTER_KEY = os.getenv("TEST_MASTER_KEY")
+
+if not TEST_MASTER_KEY:
+    raise ValueError("Error: MASTER_KEY environment variable is not set!")
+
+# Convert to bytes 
+if isinstance(TEST_MASTER_KEY, str):
+    TEST_MASTER_KEY = TEST_MASTER_KEY.encode()  # Convert the string to bytes
 
 # Derive AES key using PBKDF2
 def derive_key(password, salt):
@@ -58,7 +68,7 @@ def generate_salt():
 ##################################################################
 # Database creation if not made and fill
 ##################################################################
-DATABASE_NAME = 'fixed.db'
+DATABASE_NAME = 'Hospital.db'
 
 # Initialize Faker instance
 fake = Faker()

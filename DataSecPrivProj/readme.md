@@ -29,8 +29,11 @@ add to git
 and make project report
 //////////////////
 
-python main.py in terminal to run 
-(can test by running with new database name)
+HOW TO RUN
+1. paste "set TEST_MASTER_KEY=super_secure_master_key" in terminal (can set as any key but must delete db or set database name to a new name for the key)
+2. python main.py in terminal
+3. can log into database with username test and password pass for h permissions and can log in with test2 as username and pass as password for r permissions (only 2 pass and usernames that works every time)
+
 
 
 1. download vscode extension sqlite by alex
