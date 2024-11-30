@@ -168,10 +168,40 @@ conn.close()
 #############################################################################
 #get data from patients database and view in window
 ############################################################################
-def fetch_patients(is_admin):
+def fetch_patients(is_admin, search_criteria=None):
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT first_name, last_name, gender, age, weight, height, health_history, salt FROM patients")
+    
+    # Base query for fetching data
+    query = "SELECT first_name, last_name, gender, age, weight, height, health_history, salt FROM patients"
+    
+    # Add filter conditions based on the search criteria provided
+    conditions = []
+    params = []
+    
+    if search_criteria:
+        if 'first_name' in search_criteria and search_criteria['first_name']:
+            conditions.append("first_name IS NOT NULL")  # Placeholder to fetch all records, as search happens in Python
+        if 'last_name' in search_criteria and search_criteria['last_name']:
+            conditions.append("last_name IS NOT NULL")  # Same here for last name
+        if 'weight' in search_criteria and search_criteria['weight']:
+            conditions.append("weight = ?")
+            params.append(search_criteria['weight'])
+        if 'gender' in search_criteria and search_criteria['gender']:
+            conditions.append("gender = ?")
+            params.append(search_criteria['gender'])
+        if 'height' in search_criteria and search_criteria['height']:
+            conditions.append("height = ?")
+            params.append(search_criteria['height'])
+        if 'age' in search_criteria and search_criteria['age']:
+            conditions.append("age = ?")
+            params.append(search_criteria['age'])
+    
+    # Append conditions to the base query if any
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
     conn.close()
 
@@ -181,15 +211,28 @@ def fetch_patients(is_admin):
         stored_salt = base64.b64decode(stored_salt)
         key = derive_key(TEST_MASTER_KEY, stored_salt)  # Derive the key
 
+        # Decrypt values
+        decrypted_first_name = decrypt_data(encrypted_first_name, key)
+        decrypted_last_name = decrypt_data(encrypted_last_name, key)
+        decrypted_health_history = decrypt_data(encrypted_health_history, key)
+
+        # Filter based on search criteria in Python
+        if search_criteria:
+            if 'first_name' in search_criteria and search_criteria['first_name'].lower() not in decrypted_first_name.lower():
+                continue
+            if 'last_name' in search_criteria and search_criteria['last_name'].lower() not in decrypted_last_name.lower():
+                continue
+
+        # Append decrypted data to the list
         if is_admin:
             decrypted_rows.append((
-                decrypt_data(encrypted_first_name, key),
-                decrypt_data(encrypted_last_name, key),
+                decrypted_first_name,
+                decrypted_last_name,
                 'Male' if gender else 'Female',
                 age,
                 weight,
                 height,
-                decrypt_data(encrypted_health_history, key),
+                decrypted_health_history,
             ))
         else:
             decrypted_rows.append((
@@ -199,10 +242,85 @@ def fetch_patients(is_admin):
                 age,
                 weight,
                 height,
-                decrypt_data(encrypted_health_history, key),
+                decrypted_health_history,
             ))
 
     return decrypted_rows
+
+
+
+
+
+# Function to create a search window
+def search_patients(is_admin):
+    def perform_search():
+        if(is_admin):
+            filters = {
+                'first_name': first_name_entry.get(),
+                'last_name': last_name_entry.get(),
+                'gender': gender_entry.get().strip().lower() if gender_entry.get() else None,
+                'age': age_entry.get() if age_entry.get() else None,
+                'weight': weight_entry.get() if weight_entry.get() else None,
+                'height': height_entry.get() if height_entry.get() else None,
+            }
+        else: 
+            filters = {
+                'gender': gender_entry.get().strip().lower() if gender_entry.get() else None,
+                'age': age_entry.get() if age_entry.get() else None,
+                'weight': weight_entry.get() if weight_entry.get() else None,
+                'height': height_entry.get() if height_entry.get() else None,
+        }
+        
+        # Convert age, weight, and height to integers if provided
+        if filters['age']:
+            filters['age'] = int(filters['age'])
+        if filters['weight']:
+            filters['weight'] = float(filters['weight'])
+        if filters['height']:
+            filters['height'] = float(filters['height'])
+
+        patients = fetch_patients(is_admin, filters)
+        
+        # Clear existing data
+        for row in tree.get_children():
+            tree.delete(row)
+
+        # Insert search results into the Treeview
+        for patient in patients:
+            tree.insert("", "end", values=patient)
+
+    # Create a new window for search functionality
+    search_window = tk.Toplevel()
+    search_window.title("Search Patients")
+
+    if(is_admin):
+        tk.Label(search_window, text="First Name").grid(row=0, column=0, padx=5, pady=5)
+        first_name_entry = tk.Entry(search_window)
+        first_name_entry.grid(row=0, column=1, padx=5, pady=5)
+    if(is_admin):
+        tk.Label(search_window, text="Last Name").grid(row=1, column=0, padx=5, pady=5)
+        last_name_entry = tk.Entry(search_window)
+        last_name_entry.grid(row=1, column=1, padx=5, pady=5)
+
+    tk.Label(search_window, text="Gender (1 for M/0 for F)").grid(row=2, column=0, padx=5, pady=5)
+    gender_entry = tk.Entry(search_window)
+    gender_entry.grid(row=2, column=1, padx=5, pady=5)
+
+    tk.Label(search_window, text="Age").grid(row=3, column=0, padx=5, pady=5)
+    age_entry = tk.Entry(search_window)
+    age_entry.grid(row=3, column=1, padx=5, pady=5)
+
+    tk.Label(search_window, text="Weight").grid(row=4, column=0, padx=5, pady=5)
+    weight_entry = tk.Entry(search_window)
+    weight_entry.grid(row=4, column=1, padx=5, pady=5)
+
+    tk.Label(search_window, text="Height").grid(row=5, column=0, padx=5, pady=5)
+    height_entry = tk.Entry(search_window)
+    height_entry.grid(row=5, column=1, padx=5, pady=5)
+
+    search_button = tk.Button(search_window, text="Search", command=perform_search)
+    search_button.grid(row=6, column=0, columnspan=2, pady=10)
+
 
 def display_patients(is_admin):
     patients = fetch_patients(is_admin)  # Fetch and decrypt patient data
@@ -255,6 +373,9 @@ def show_patient_list(is_admin):
     # Add a button to fetch and display patient data
     button = tk.Button(patient_window, text="Load Patients", command=lambda: display_patients(is_admin))
     button.pack(pady=10)
+
+    search_button = tk.Button(patient_window, text="Search Patients", command=lambda: search_patients(is_admin))
+    search_button.pack(pady=10)
 
     # Add a button to open the add patient window (for admins)
     if(is_admin):
