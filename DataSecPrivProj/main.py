@@ -65,13 +65,13 @@ def generate_salt():
 ##################################################################
 # Database creation if not made and fill
 ##################################################################
-DATABASE_NAME = 'Hospital.db'
+HOSPITAL_DB = 'Hospital.db'
 
 # Initialize Faker instance
 fake = Faker()
 
 # Connect to SQLite database (or create if it doesn't exist)
-conn = sqlite3.connect(DATABASE_NAME)
+conn = sqlite3.connect(HOSPITAL_DB)
 cursor = conn.cursor()
 
 # Create tables with salt in patients table
@@ -166,7 +166,7 @@ conn.close()
 #get data from patients database and view in window
 ############################################################################
 def fetch_patients(is_admin, search_criteria=None):
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = sqlite3.connect(HOSPITAL_DB)
     cursor = conn.cursor()
     
     # Base query for fetching data
@@ -182,14 +182,20 @@ def fetch_patients(is_admin, search_criteria=None):
         if 'last_name' in search_criteria and search_criteria['last_name']:
             conditions.append("last_name IS NOT NULL")  # Same here for last name
         if 'weight' in search_criteria and search_criteria['weight']:
-            conditions.append("weight = ?")
-            params.append(search_criteria['weight'])
+            # Added a tolerance since some of the Faker numbers are Strange
+            tolerance = 5
+            conditions.append("(weight BETWEEN ? AND ?)")
+            params.append(search_criteria['weight'] - tolerance)
+            params.append(search_criteria['weight'] + tolerance)
         if 'gender' in search_criteria and search_criteria['gender']:
             conditions.append("gender = ?")
             params.append(search_criteria['gender'])
         if 'height' in search_criteria and search_criteria['height']:
-            conditions.append("height = ?")
-            params.append(search_criteria['height'])
+            # Added tolerance since some of the Faker numbers are strange
+            tolerance = 0.05
+            conditions.append("(height BETWEEN ? AND ?)")
+            params.append(search_criteria['height'] - tolerance)
+            params.append(search_criteria['height'] + tolerance)
         if 'age' in search_criteria and search_criteria['age']:
             conditions.append("age = ?")
             params.append(search_criteria['age'])
@@ -314,7 +320,6 @@ def search_patients(is_admin):
     search_button = tk.Button(search_window, text="Search", command=perform_search)
     search_button.grid(row=6, column=0, columnspan=2, pady=10)
 
-
 def display_patients(is_admin):
     patients = fetch_patients(is_admin)  # Fetch and decrypt patient data
 
@@ -325,7 +330,6 @@ def display_patients(is_admin):
     # Insert decrypted data into the Treeview
     for patient in patients:
         tree.insert("", "end", values=patient)
-
 
 # Function to show the patient list window
 def show_patient_list(is_admin):
@@ -382,64 +386,72 @@ def show_patient_list(is_admin):
     # Bind the Treeview selection to update the Text widget
     tree.bind("<<TreeviewSelect>>", show_health_history)
 
-    # Add a button to fetch and display patient data
-    button = tk.Button(patient_window, text="Load Patients", command=lambda: display_patients(is_admin))
-    button.pack(pady=10)
+    # Create a frame to hold the buttons in a row
+    button_frame = tk.Frame(patient_window)
+    button_frame.pack(pady=10)  # Add vertical padding for spacing
 
-    search_button = tk.Button(patient_window, text="Search Patients", command=lambda: search_patients(is_admin))
-    search_button.pack(pady=10)
+    # Add buttons to the frame
+    load_button = tk.Button(button_frame, text="Load Patients", command=lambda: display_patients(is_admin))
+    load_button.pack(side=tk.LEFT, padx=5)  # Add horizontal padding for spacing
 
-    # Add a button to open the add patient window (for admins)
+    search_button = tk.Button(button_frame, text="Search Patients", command=lambda: search_patients(is_admin))
+    search_button.pack(side=tk.LEFT, padx=5)
+
     if is_admin:
-        add_patient_button = tk.Button(patient_window, text="Add Patient", command=lambda: add_patient(is_admin))
-        add_patient_button.pack(pady=10)
+        add_patient_button = tk.Button(button_frame, text="Add Patient", command=lambda: manage_patient(is_admin))
+        add_patient_button.pack(side=tk.LEFT, padx=5)
 
     # Run the Tkinter main loop for the patient list window
     patient_window.mainloop()
 
-
-def add_patient(is_admin):
+def manage_patient(is_admin):
     if not is_admin:
-        messagebox.showerror("Permission Denied", "You do not have the necessary privileges to add a patient.")
+        messagebox.showerror("Permission Denied", "You do not have the necessary privileges.")
         return
 
-    # Create a new window to get patient data
-    add_patient_window = tk.Toplevel()
-    add_patient_window.title("Add Patient")
+    # Create a new window to manage patient data
+    manage_patient_window = tk.Toplevel()
+    manage_patient_window.title("Manage Patient")
 
-    # Define labels and entry fields for patient details
-    tk.Label(add_patient_window, text="First Name").grid(row=0, column=0, padx=5, pady=5)
-    first_name_entry = tk.Entry(add_patient_window)
+    # Create common input fields for both actions
+    tk.Label(manage_patient_window, text="First Name").grid(row=0, column=0, padx=5, pady=5)
+    first_name_entry = tk.Entry(manage_patient_window)
     first_name_entry.grid(row=0, column=1, padx=5, pady=5)
 
-    tk.Label(add_patient_window, text="Last Name").grid(row=1, column=0, padx=5, pady=5)
-    last_name_entry = tk.Entry(add_patient_window)
+    tk.Label(manage_patient_window, text="Last Name").grid(row=1, column=0, padx=5, pady=5)
+    last_name_entry = tk.Entry(manage_patient_window)
     last_name_entry.grid(row=1, column=1, padx=5, pady=5)
 
-    tk.Label(add_patient_window, text="Gender (M/F)").grid(row=2, column=0, padx=5, pady=5)
-    gender_entry = tk.Entry(add_patient_window)
+    # Additional fields for adding a patient
+    tk.Label(manage_patient_window, text="Gender (M/F)").grid(row=2, column=0, padx=5, pady=5)
+    gender_entry = tk.Entry(manage_patient_window)
     gender_entry.grid(row=2, column=1, padx=5, pady=5)
 
-    tk.Label(add_patient_window, text="Age").grid(row=3, column=0, padx=5, pady=5)
-    age_entry = tk.Entry(add_patient_window)
+    tk.Label(manage_patient_window, text="Age").grid(row=3, column=0, padx=5, pady=5)
+    age_entry = tk.Entry(manage_patient_window)
     age_entry.grid(row=3, column=1, padx=5, pady=5)
 
-    tk.Label(add_patient_window, text="Weight").grid(row=4, column=0, padx=5, pady=5)
-    weight_entry = tk.Entry(add_patient_window)
+    tk.Label(manage_patient_window, text="Weight").grid(row=4, column=0, padx=5, pady=5)
+    weight_entry = tk.Entry(manage_patient_window)
     weight_entry.grid(row=4, column=1, padx=5, pady=5)
 
-    tk.Label(add_patient_window, text="Height").grid(row=5, column=0, padx=5, pady=5)
-    height_entry = tk.Entry(add_patient_window)
+    tk.Label(manage_patient_window, text="Height").grid(row=5, column=0, padx=5, pady=5)
+    height_entry = tk.Entry(manage_patient_window)
     height_entry.grid(row=5, column=1, padx=5, pady=5)
 
-    tk.Label(add_patient_window, text="Health History").grid(row=6, column=0, padx=5, pady=5)
-    health_history_entry = tk.Entry(add_patient_window)
+    tk.Label(manage_patient_window, text="Health History").grid(row=6, column=0, padx=5, pady=5)
+    health_history_entry = tk.Entry(manage_patient_window)
     health_history_entry.grid(row=6, column=1, padx=5, pady=5)
 
-    # Function to encrypt and insert the new patient data into the database
+    # Function to add a new patient
     def save_patient():
         first_name = first_name_entry.get()
         last_name = last_name_entry.get()
+
+        if not first_name or not last_name:
+            messagebox.showerror("Input Error", "Please provide both First Name and Last Name.")
+            return
+
         gender = gender_entry.get().upper() == 'M'  # Convert to boolean (True for Male, False for Female)
         age = int(age_entry.get())
         weight = float(weight_entry.get())
@@ -456,23 +468,22 @@ def add_patient(is_admin):
         encrypted_health_history = encrypt_data(health_history, key)
 
         # Insert patient data into the database
-        conn = sqlite3.connect(DATABASE_NAME)
+        conn = sqlite3.connect(HOSPITAL_DB)
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO patients (first_name, last_name, gender, age, weight, height, health_history, salt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history, base64.b64encode(salt).decode()))
+        cursor.execute(""" 
+            INSERT INTO patients (first_name, last_name, gender, age, weight, height, health_history, salt) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
+        """, (encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history,
+              base64.b64encode(salt).decode()))
         conn.commit()
         conn.close()
 
         messagebox.showinfo("Success", "Patient added successfully.")
-        add_patient_window.destroy()
+        manage_patient_window.destroy()
 
-    # Add a button to save the patient data
-    save_button = tk.Button(add_patient_window, text="Add Patient", command=save_patient)
-    save_button.grid(row=7, column=0, columnspan=2, pady=10)
-
-
+    # Add Button (calls save_patient to add a new patient)
+    add_button = tk.Button(manage_patient_window, text="Add Patient", command=save_patient)
+    add_button.grid(row=8, column=0, columnspan=2, pady=10)
 
 ###################################################
 #login window and functionality
@@ -482,7 +493,7 @@ def login():
     username = username_entry.get()
     password = password_entry.get()
 
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = sqlite3.connect(HOSPITAL_DB)
     cursor = conn.cursor()
     
     # Fetch user info for the entered username, including user_type
