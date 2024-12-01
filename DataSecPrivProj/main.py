@@ -212,35 +212,7 @@ def fetch_patients(is_admin, search_criteria=None):
     # Base query for fetching data
     query = "SELECT first_name, last_name, gender, age, weight, height, health_history, salt, patient_data_hash FROM patients"
 
-    # Add filter conditions based on the search criteria provided
-    conditions = []
-    params = []
-
-    if search_criteria:
-        if 'first_name' in search_criteria and search_criteria['first_name']:
-            conditions.append("first_name IS NOT NULL")  # Placeholder for first name
-        if 'last_name' in search_criteria and search_criteria['last_name']:
-            conditions.append("last_name IS NOT NULL")  # Placeholder for last name
-        if 'weight' in search_criteria and search_criteria['weight']:
-            conditions.append("(weight BETWEEN ? AND ?)")  # Weight filter with tolerance
-            params.append(float(search_criteria['weight']) - 5)  # Example tolerance
-            params.append(float(search_criteria['weight']) + 5)
-        if 'gender' in search_criteria and search_criteria['gender']:
-            conditions.append("gender = ?")
-            params.append(search_criteria['gender'])
-        if 'height' in search_criteria and search_criteria['height']:
-            conditions.append("(height BETWEEN ? AND ?)")
-            params.append(float(search_criteria['height']) - 0.05)  # Example tolerance
-            params.append(float(search_criteria['height']) + 0.05)
-        if 'age' in search_criteria and search_criteria['age']:
-            conditions.append("age = ?")
-            params.append(int(search_criteria['age']))
-
-    # Append conditions to the base query if any
-    if conditions:
-        query += " WHERE " + " AND ".join(conditions)
-
-    cursor.execute(query, tuple(params))
+    cursor.execute(query)
     rows = cursor.fetchall()
     conn.close()
 
@@ -282,49 +254,75 @@ def fetch_patients(is_admin, search_criteria=None):
         if calculated_hash != patient_data_hash:
             print(f"Warning: Integrity check failed for patient {decrypted_first_name} {decrypted_last_name}")
 
-        # Filter based on search criteria
-        if search_criteria:
-            if 'first_name' in search_criteria and search_criteria['first_name'].lower() not in decrypted_first_name.lower():
-                continue
-            if 'last_name' in search_criteria and search_criteria['last_name'].lower() not in decrypted_last_name.lower():
-                continue
-
         # Append decrypted data to the list
-        if is_admin:
-            decrypted_rows.append((  # Admin can see all details
-                decrypted_first_name,
-                decrypted_last_name,
-                'Male' if decrypted_gender else 'Female',
-                decrypted_age,
-                decrypted_weight,
-                decrypted_height,
-                decrypted_health_history,
-            ))
-        else:
-            decrypted_rows.append((  # Non-admin sees limited info
-                "Anonymous",
-                "Anonymous",
-                'Male' if decrypted_gender else 'Female',
-                decrypted_age,
-                decrypted_weight,
-                decrypted_height,
-                decrypted_health_history,
-            ))
+        decrypted_rows.append(patient_data)
 
-    return decrypted_rows
+    # Filter decrypted rows based on search criteria
+    filtered_rows = []
+    for patient in decrypted_rows:
+        match = True
+        if search_criteria:
+            if 'first_name' in search_criteria and search_criteria['first_name'].lower() not in patient['first_name'].lower():
+                match = False
+            if 'last_name' in search_criteria and search_criteria['last_name'].lower() not in patient['last_name'].lower():
+                match = False
+            if 'gender' in search_criteria and search_criteria['gender'].lower() != ('male' if patient['gender'] else 'female'):
+                match = False
+            if 'age' in search_criteria and search_criteria['age'] != str(patient['age']):
+                match = False
+            if 'weight' in search_criteria and abs(float(search_criteria['weight']) - patient['weight']) > 5:  # Example tolerance for weight
+                match = False
+            if 'height' in search_criteria and abs(float(search_criteria['height']) - patient['height']) > 0.05:  # Example tolerance for height
+                match = False
+
+        if match:
+            if is_admin:
+                filtered_rows.append((
+                    patient['first_name'],
+                    patient['last_name'],
+                    'Male' if patient['gender'] else 'Female',
+                    patient['age'],
+                    patient['weight'],
+                    patient['height'],
+                    patient['health_history'],
+                ))
+            else:
+                filtered_rows.append((
+                    "Anonymous",
+                    "Anonymous",
+                    'Male' if patient['gender'] else 'Female',
+                    patient['age'],
+                    patient['weight'],
+                    patient['height'],
+                    patient['health_history'],
+                ))
+
+    return filtered_rows
+
 
 
 # Function to create a search window
 def search_patients(is_admin):
     def perform_search():
-        filters = {
-            'first_name': first_name_entry.get() if first_name_entry.get() else None,
-            'last_name': last_name_entry.get() if last_name_entry.get() else None,
-            'gender': gender_entry.get().strip().lower() if gender_entry.get() else None,
-            'age': age_entry.get() if age_entry.get() else None,
-            'weight': weight_entry.get() if weight_entry.get() else None,
-            'height': height_entry.get() if height_entry.get() else None,
-        }
+        if(is_admin):
+            filters = {
+                'first_name': first_name_entry.get() if first_name_entry.get() else None,
+                'last_name': last_name_entry.get() if last_name_entry.get() else None,
+                'gender': gender_entry.get().strip().lower() if gender_entry.get() else None,
+                'age': age_entry.get() if age_entry.get() else None,
+                'weight': weight_entry.get() if weight_entry.get() else None,
+                'height': height_entry.get() if height_entry.get() else None,
+            }
+        else:
+            filters = {
+                'gender': gender_entry.get().strip().lower() if gender_entry.get() else None,
+                'age': age_entry.get() if age_entry.get() else None,
+                'weight': weight_entry.get() if weight_entry.get() else None,
+                'height': height_entry.get() if height_entry.get() else None,
+            }
+
+        # Debug: Print filters before type conversion
+        print("Filters before type conversion:", filters)
 
         # Handle gender as 'male' and 'female' or None
         if filters['gender'] == '1':
@@ -334,14 +332,32 @@ def search_patients(is_admin):
 
         # Convert age, weight, and height to integers/floats if provided
         if filters['age']:
-            filters['age'] = str(int(filters['age']))  # Convert to string representation
+            try:
+                filters['age'] = str(int(filters['age']))  # Convert to string representation
+            except ValueError:
+                print("Invalid age value provided:", filters['age'])
+                filters['age'] = None  # Reset if conversion fails
         if filters['weight']:
-            filters['weight'] = str(float(filters['weight']))  # Convert to string representation
+            try:
+                filters['weight'] = str(float(filters['weight']))  # Convert to string representation
+            except ValueError:
+                print("Invalid weight value provided:", filters['weight'])
+                filters['weight'] = None  # Reset if conversion fails
         if filters['height']:
-            filters['height'] = str(float(filters['height']))  # Convert to string representation
+            try:
+                filters['height'] = str(float(filters['height']))  # Convert to string representation
+            except ValueError:
+                print("Invalid height value provided:", filters['height'])
+                filters['height'] = None  # Reset if conversion fails
 
-        # Remove filters that are still None or empty (this avoids unnecessary database search criteria)
+        # Debug: Print filters after type conversion
+        print("Filters after type conversion:", filters)
+
+        # Remove filters that are still None or empty
         filters = {key: value for key, value in filters.items() if value is not None}
+
+        # Debug: Print the final filters before passing to fetch_patients
+        print("Final filters passed to fetch_patients:", filters)
 
         # Fetch patients with the filters
         patients = fetch_patients(is_admin, filters)
