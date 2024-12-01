@@ -69,9 +69,6 @@ def verify_data_integrity(encrypted_data, key, stored_hash):
     # Compare the computed hash with the stored hash
     return computed_hash == stored_hash
 
-###########################################################
-# Database creation if not made and filling with users
-###########################################################
 HOSPITAL_DB = 'Hospital.db'
 
 # Initialize Faker instance
@@ -189,12 +186,31 @@ conn.close()
 #############################################################################
 #get data from patients database and view in window
 ############################################################################
+def generate_row_checksum(patient_data):
+    """Generate a checksum for a single data row."""
+    # If patient data includes hash, use it for integrity check
+    if 'patient_data_hash' in patient_data:
+        return patient_data['patient_data_hash']  # Use the pre-generated hash from patient data
+    # Convert the dictionary to a string and generate a checksum (using SHA256 for better security)
+    checksum_string = str(patient_data)  # Convert the dictionary to a string
+    return hashlib.sha256(checksum_string.encode()).hexdigest()  # Now encode the string for checksum generation
+
+
+def generate_query_checksum(rows):
+    # Generate a checksum for an entire query result set.
+    concatenated_data = "".join([str(row) for row in rows])
+    return hashlib.md5(concatenated_data.encode()).hexdigest()
+
+###########################################################
+# Database creation if not made and filling with users
+###########################################################
+# Main function to fetch patients
 def fetch_patients(is_admin, search_criteria=None):
     conn = sqlite3.connect(HOSPITAL_DB)
     cursor = conn.cursor()
 
     # Base query for fetching data
-    query = "SELECT first_name, last_name, gender, age, weight, height, health_history, salt FROM patients"
+    query = "SELECT first_name, last_name, gender, age, weight, height, health_history, salt, patient_data_hash FROM patients"
 
     # Add filter conditions based on the search criteria provided
     conditions = []
@@ -202,27 +218,23 @@ def fetch_patients(is_admin, search_criteria=None):
 
     if search_criteria:
         if 'first_name' in search_criteria and search_criteria['first_name']:
-            conditions.append("first_name IS NOT NULL")  # Placeholder to fetch all records, as search happens in Python
+            conditions.append("first_name IS NOT NULL")  # Placeholder for first name
         if 'last_name' in search_criteria and search_criteria['last_name']:
-            conditions.append("last_name IS NOT NULL")  # Same here for last name
+            conditions.append("last_name IS NOT NULL")  # Placeholder for last name
         if 'weight' in search_criteria and search_criteria['weight']:
-            # Added a tolerance since some of the Faker numbers are strange
-            tolerance = 5
-            conditions.append("(weight BETWEEN ? AND ?)")
-            params.append(float(search_criteria['weight']) - tolerance)  # Convert weight to float
-            params.append(float(search_criteria['weight']) + tolerance)  # Convert weight to float
+            conditions.append("(weight BETWEEN ? AND ?)")  # Weight filter with tolerance
+            params.append(float(search_criteria['weight']) - 5)  # Example tolerance
+            params.append(float(search_criteria['weight']) + 5)
         if 'gender' in search_criteria and search_criteria['gender']:
             conditions.append("gender = ?")
             params.append(search_criteria['gender'])
         if 'height' in search_criteria and search_criteria['height']:
-            # Added tolerance since some of the Faker numbers are strange
-            tolerance = 0.05
             conditions.append("(height BETWEEN ? AND ?)")
-            params.append(float(search_criteria['height']) - tolerance)  # Convert height to float
-            params.append(float(search_criteria['height']) + tolerance)  # Convert height to float
+            params.append(float(search_criteria['height']) - 0.05)  # Example tolerance
+            params.append(float(search_criteria['height']) + 0.05)
         if 'age' in search_criteria and search_criteria['age']:
             conditions.append("age = ?")
-            params.append(int(search_criteria['age']))  # Convert age to integer
+            params.append(int(search_criteria['age']))
 
     # Append conditions to the base query if any
     if conditions:
@@ -234,7 +246,7 @@ def fetch_patients(is_admin, search_criteria=None):
 
     decrypted_rows = []
     for row in rows:
-        encrypted_first_name, encrypted_last_name, encrypted_gender, encrypted_age, encrypted_weight, encrypted_height, encrypted_health_history, stored_salt = row
+        encrypted_first_name, encrypted_last_name, encrypted_gender, encrypted_age, encrypted_weight, encrypted_height, encrypted_health_history, stored_salt, patient_data_hash = row
         stored_salt = base64.b64decode(stored_salt)
         key = derive_key(MASTER_KEY, stored_salt)  # Derive the key
 
@@ -253,13 +265,28 @@ def fetch_patients(is_admin, search_criteria=None):
         decrypted_weight = float(decrypted_weight)  # Convert back to float
         decrypted_height = float(decrypted_height)  # Convert back to float
 
-        # Filter based on search criteria in Python
+        # Create patient data dictionary for integrity checking
+        patient_data = {
+            'first_name': decrypted_first_name,
+            'last_name': decrypted_last_name,
+            'gender': decrypted_gender,
+            'age': decrypted_age,
+            'weight': decrypted_weight,
+            'height': decrypted_height,
+            'health_history': decrypted_health_history,
+            'patient_data_hash': patient_data_hash  # Use the provided hash from the database
+        }
+
+        # Verify the integrity of the row data
+        calculated_hash = generate_row_checksum(patient_data)
+        if calculated_hash != patient_data_hash:
+            print(f"Warning: Integrity check failed for patient {decrypted_first_name} {decrypted_last_name}")
+
+        # Filter based on search criteria
         if search_criteria:
-            if 'first_name' in search_criteria and search_criteria[
-                'first_name'].lower() not in decrypted_first_name.lower():
+            if 'first_name' in search_criteria and search_criteria['first_name'].lower() not in decrypted_first_name.lower():
                 continue
-            if 'last_name' in search_criteria and search_criteria[
-                'last_name'].lower() not in decrypted_last_name.lower():
+            if 'last_name' in search_criteria and search_criteria['last_name'].lower() not in decrypted_last_name.lower():
                 continue
 
         # Append decrypted data to the list
@@ -358,7 +385,6 @@ def search_patients(is_admin):
 
     search_button = tk.Button(search_window, text="Search", command=perform_search)
     search_button.grid(row=6, column=0, columnspan=2, pady=10)
-
 
 def display_patients(is_admin):
     patients = fetch_patients(is_admin)  # Fetch and decrypt patient data
@@ -536,9 +562,7 @@ def manage_patient(is_admin):
     add_button = tk.Button(manage_patient_window, text="Add Patient", command=save_patient)
     add_button.grid(row=8, column=0, columnspan=2, pady=10)
 
-###################################################
-#login window
-###################################################
+# Function to log in to login window
 def login():
     username = username_entry.get()
     password = password_entry.get()
@@ -569,7 +593,6 @@ def login():
 
     conn.close()
     messagebox.showerror("Login Failed", "Invalid username or password. Please try again.")
-
 
 # Function to create the login window
 def create_login_window():
