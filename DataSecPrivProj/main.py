@@ -100,14 +100,13 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS patients (
     weight REAL NOT NULL,
     height REAL NOT NULL,
     health_history TEXT,
-    salt TEXT NOT NULL,  -- Added salt field for each patient
-    patient_data_hash TEXT,  -- Add the missing column for patient data hash
+    salt TEXT NOT NULL,
+    patient_data_hash TEXT, -- not sure if we will use just in case
     FOREIGN KEY (user_id) REFERENCES users(id)
 )''')
 
 conn.commit()
 
-# Check if the "test" user exists, if not add it
 # Check if the "test" user exists, if not add it
 cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'test'")
 if cursor.fetchone()[0] == 0:
@@ -186,9 +185,6 @@ if patient_count < 100:
 # Commit the changes and close the connection
 conn.commit()
 conn.close()
-
-
-
 
 #############################################################################
 #get data from patients database and view in window
@@ -503,22 +499,33 @@ def manage_patient(is_admin):
         health_history = health_history_entry.get()
 
         # Generate salt and derive key for encryption
-        salt = generate_salt()
-        key = derive_key(MASTER_KEY, salt)
+        patient_salt = generate_salt()
+        patient_key = derive_key(MASTER_KEY, patient_salt)
+
+        # Hash the patient data for integrity check (before encryption)
+        patient_data_string = f"{first_name}{last_name}{gender}{age}{weight}{height}{health_history}"
+        patient_data_hash = hash_data(patient_data_string)
 
         # Encrypt sensitive patient data
-        encrypted_first_name = encrypt_data(first_name, key)
-        encrypted_last_name = encrypt_data(last_name, key)
-        encrypted_health_history = encrypt_data(health_history, key)
+        encrypted_first_name = encrypt_data(first_name, patient_key)
+        encrypted_last_name = encrypt_data(last_name, patient_key)
+        encrypted_gender = encrypt_data(str(gender), patient_key)
+        encrypted_age = encrypt_data(str(age), patient_key)
+        encrypted_weight = encrypt_data(str(weight), patient_key)
+        encrypted_height = encrypt_data(str(height), patient_key)
+        encrypted_health_history = encrypt_data(health_history, patient_key)
 
-        # Insert patient data into the database
+        # Insert encrypted patient data into the database
         conn = sqlite3.connect(HOSPITAL_DB)
         cursor = conn.cursor()
+
+        user_id = cursor.lastrowid
+
         cursor.execute(""" 
-            INSERT INTO patients (first_name, last_name, gender, age, weight, height, health_history, salt) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
-        """, (encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history,
-              base64.b64encode(salt).decode()))
+            INSERT INTO patients (user_id, first_name, last_name, gender, age, weight, height, health_history, salt, patient_data_hash) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+        """, (user_id, encrypted_first_name, encrypted_last_name, encrypted_gender, encrypted_age, encrypted_weight,
+              encrypted_height, encrypted_health_history, base64.b64encode(patient_salt).decode(), patient_data_hash))
         conn.commit()
         conn.close()
 
@@ -530,11 +537,8 @@ def manage_patient(is_admin):
     add_button.grid(row=8, column=0, columnspan=2, pady=10)
 
 ###################################################
-#login window and functionality
-######################################################
-# Not relying on database for authentication
-# Authenticate within code for password and set user type
-# Only relies on database for user storage not actual authenticaiton
+#login window
+###################################################
 def login():
     username = username_entry.get()
     password = password_entry.get()
