@@ -7,7 +7,10 @@
     <list default="true" id="d5d10331-5a98-4017-8ee0-d868c74d8f36" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/DataSecPrivProj/Hospital.db" beforeDir="false" afterPath="$PROJECT_DIR$/DataSecPrivProj/Hospital.db" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/DataSecPrivProj/fixed.db" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/DataSecPrivProj/fixed2.db" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/DataSecPrivProj/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/DataSecPrivProj/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/DataSecPrivProj/readme.md" beforeDir="false" afterPath="$PROJECT_DIR$/DataSecPrivProj/readme.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -56,7 +59,7 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1733018628017</updated>
-      <workItem from="1733018629402" duration="9281000" />
+      <workItem from="1733018629402" duration="13685000" />
     </task>
     <servers />
   </component>
