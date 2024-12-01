@@ -532,7 +532,9 @@ def manage_patient(is_admin):
 ###################################################
 #login window and functionality
 ######################################################
-
+# Not relying on database for authentication
+# Authenticate within code for password and set user type
+# Only relies on database for user storage not actual authenticaiton
 def login():
     username = username_entry.get()
     password = password_entry.get()
@@ -557,7 +559,7 @@ def login():
 
             # Determine if the user is an admin (user_type is 'h') or regular (user_type is 'r')
             is_admin = (user_type == 'h')
-            show_patient_list(is_admin)  # Show the patient list with is_admin status
+            show_patient_list(is_admin)  # Show the patient list determined by is_admin status
             conn.close()
             return
 
