@@ -14,22 +14,22 @@ import math
 import base64
 from faker import Faker
 
-# STart with flase admin
+# Start with False Admin Flag!
 is_admin = False
 
 ############################################################
 #encryption and decryption 
 ############################################################
-#TEST_MASTER_KEY = b'super_secure_master_key'  # store this better or generate randomly and store
-#MASTER KEY STUFF
-TEST_MASTER_KEY = os.getenv("TEST_MASTER_KEY")
+# MASTER_KEY = b'super_secure_master_key'
+# MASTER KEY STUFF
+MASTER_KEY = os.getenv("MASTER_KEY")
 
-if not TEST_MASTER_KEY:
+if not MASTER_KEY:
     raise ValueError("Error: MASTER_KEY environment variable is not set!")
 
 # Convert to bytes 
-if isinstance(TEST_MASTER_KEY, str):
-    TEST_MASTER_KEY = TEST_MASTER_KEY.encode()  # Convert the string to bytes
+if isinstance(MASTER_KEY, str):
+    MASTER_KEY = MASTER_KEY.encode()  # Convert the string to bytes
 
 # Derive AES key using PBKDF2
 def derive_key(password, salt):
@@ -61,9 +61,6 @@ def decrypt_data(encrypted_data, key):
 # Securely generate salt
 def generate_salt():
     return os.urandom(16)
-
-
-
 
 ##################################################################
 # Database creation if not made and fill
@@ -106,7 +103,7 @@ conn.commit()
 cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'test'")
 if cursor.fetchone()[0] == 0:
     salt = generate_salt()
-    key = derive_key(TEST_MASTER_KEY, salt)
+    key = derive_key(MASTER_KEY, salt)
     encrypted_password = encrypt_data('pass', key)
     cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
                    ('test', encrypted_password, base64.b64encode(salt).decode(), 'h'))
@@ -115,7 +112,7 @@ if cursor.fetchone()[0] == 0:
 cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'test2'")
 if cursor.fetchone()[0] == 0:
     salt = generate_salt()
-    key = derive_key(TEST_MASTER_KEY, salt)
+    key = derive_key(MASTER_KEY, salt)
     encrypted_password = encrypt_data('pass', key)
     cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
                    ('test2', encrypted_password, base64.b64encode(salt).decode(), 'r'))
@@ -129,7 +126,7 @@ if patient_count < 100:
         username = fake.user_name()
         password = fake.password()
         user_salt = generate_salt()
-        user_key = derive_key(TEST_MASTER_KEY, user_salt)
+        user_key = derive_key(MASTER_KEY, user_salt)
         encrypted_password = encrypt_data(password, user_key)
         user_type = random.choice(['h', 'r'])  # 'h' for no first last name, 'r' for all
 
@@ -140,7 +137,7 @@ if patient_count < 100:
 
         # Generate and encrypt patient data
         patient_salt = generate_salt()
-        patient_key = derive_key(TEST_MASTER_KEY, patient_salt)
+        patient_key = derive_key(MASTER_KEY, patient_salt)
 
         first_name = fake.first_name()
         last_name = fake.last_name()
@@ -209,7 +206,7 @@ def fetch_patients(is_admin, search_criteria=None):
     for row in rows:
         encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history, stored_salt = row
         stored_salt = base64.b64decode(stored_salt)
-        key = derive_key(TEST_MASTER_KEY, stored_salt)  # Derive the key
+        key = derive_key(MASTER_KEY, stored_salt)  # Derive the key
 
         # Decrypt values
         decrypted_first_name = decrypt_data(encrypted_first_name, key)
@@ -246,10 +243,6 @@ def fetch_patients(is_admin, search_criteria=None):
             ))
 
     return decrypted_rows
-
-
-
-
 
 # Function to create a search window
 def search_patients(is_admin):
@@ -342,7 +335,7 @@ def show_patient_list(is_admin):
     patient_window.title("Patients Database Viewer")
 
     # Create a Treeview widget to display the patient data
-    tree = ttk.Treeview(patient_window, columns=("First Name", "Last Name", "Gender", "Age", "Weight", "Height", "Health History"), show="headings")
+    tree = ttk.Treeview(patient_window, columns=("First Name", "Last Name", "Gender", "Age", "Weight", "Height", "Health History"), show="headings", height=5)
 
     # Define headings for the columns
     tree.heading("First Name", text="First Name")
@@ -368,7 +361,26 @@ def show_patient_list(is_admin):
     scrollbar.pack(side="right", fill="y")
 
     # Pack the Treeview widget
-    tree.pack(padx=10, pady=10)
+    tree.pack(padx=10, pady=10, expand=True, fill="both")
+
+    #Added a label for the health history
+    health_history_label = tk.Label(patient_window, text="Health History Summary")
+    health_history_label.pack(padx=10, pady=(10, 5))
+
+    # Add a Text widget to display the "Health History" stuff
+    health_history_text = tk.Text(patient_window, height=5, wrap=tk.WORD)
+    health_history_text.pack(padx=10, pady=10, fill="x")
+
+    # Function to update the Text widget with Health History content
+    def show_health_history(event):
+        selected_item = tree.selection()
+        if selected_item:
+            item = tree.item(selected_item)
+            health_history_text.delete("1.0", tk.END)
+            health_history_text.insert(tk.END, item["values"][-1])  # Last column is Health History
+
+    # Bind the Treeview selection to update the Text widget
+    tree.bind("<<TreeviewSelect>>", show_health_history)
 
     # Add a button to fetch and display patient data
     button = tk.Button(patient_window, text="Load Patients", command=lambda: display_patients(is_admin))
@@ -378,10 +390,9 @@ def show_patient_list(is_admin):
     search_button.pack(pady=10)
 
     # Add a button to open the add patient window (for admins)
-    if(is_admin):
+    if is_admin:
         add_patient_button = tk.Button(patient_window, text="Add Patient", command=lambda: add_patient(is_admin))
         add_patient_button.pack(pady=10)
-
 
     # Run the Tkinter main loop for the patient list window
     patient_window.mainloop()
@@ -437,7 +448,7 @@ def add_patient(is_admin):
 
         # Generate salt and derive key for encryption
         salt = generate_salt()
-        key = derive_key(TEST_MASTER_KEY, salt)
+        key = derive_key(MASTER_KEY, salt)
 
         # Encrypt sensitive patient data
         encrypted_first_name = encrypt_data(first_name, key)
@@ -481,7 +492,7 @@ def login():
     if user:
         encrypted_password, stored_salt, user_type = user  # Retrieve user_type
         stored_salt = base64.b64decode(stored_salt)
-        key = derive_key(TEST_MASTER_KEY, stored_salt)  # Derive the key
+        key = derive_key(MASTER_KEY, stored_salt)  # Derive the key
         decrypted_password = decrypt_data(encrypted_password, key)
         
         if password == decrypted_password:  # Compare the decrypted password
@@ -505,15 +516,15 @@ def create_login_window():
 
     # Username label and entry
     username_label = tk.Label(login_window, text="Username")
-    username_label.pack(pady=5)
+    username_label.pack(pady=5, padx=55)
     username_entry = tk.Entry(login_window)
-    username_entry.pack(pady=5)
+    username_entry.pack(pady=5, padx=55)
 
     # Password label and entry
     password_label = tk.Label(login_window, text="Password")
-    password_label.pack(pady=5)
+    password_label.pack(pady=5, padx=55)
     password_entry = tk.Entry(login_window, show="*")
-    password_entry.pack(pady=5)
+    password_entry.pack(pady=5, padx=55)
 
     # Login button
     login_button = tk.Button(login_window, text="Login", command=login)
