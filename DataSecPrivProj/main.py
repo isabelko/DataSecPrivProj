@@ -14,22 +14,22 @@ import math
 import base64
 from faker import Faker
 
-# STart with flase admin
+# Start with False Admin Flag!
 is_admin = False
 
 ############################################################
 #encryption and decryption 
 ############################################################
-#TEST_MASTER_KEY = b'super_secure_master_key'  # store this better or generate randomly and store
-#MASTER KEY STUFF
-TEST_MASTER_KEY = os.getenv("TEST_MASTER_KEY")
+# MASTER_KEY = b'super_secure_master_key'
+# MASTER KEY STUFF
+MASTER_KEY = os.getenv("MASTER_KEY")
 
-if not TEST_MASTER_KEY:
+if not MASTER_KEY:
     raise ValueError("Error: MASTER_KEY environment variable is not set!")
 
 # Convert to bytes 
-if isinstance(TEST_MASTER_KEY, str):
-    TEST_MASTER_KEY = TEST_MASTER_KEY.encode()  # Convert the string to bytes
+if isinstance(MASTER_KEY, str):
+    MASTER_KEY = MASTER_KEY.encode()  # Convert the string to bytes
 
 # Derive AES key using PBKDF2
 def derive_key(password, salt):
@@ -62,19 +62,16 @@ def decrypt_data(encrypted_data, key):
 def generate_salt():
     return os.urandom(16)
 
-
-
-
 ##################################################################
 # Database creation if not made and fill
 ##################################################################
-DATABASE_NAME = 'Hospital.db'
+HOSPITAL_DB = 'Hospital.db'
 
 # Initialize Faker instance
 fake = Faker()
 
 # Connect to SQLite database (or create if it doesn't exist)
-conn = sqlite3.connect(DATABASE_NAME)
+conn = sqlite3.connect(HOSPITAL_DB)
 cursor = conn.cursor()
 
 # Create tables with salt in patients table
@@ -106,7 +103,7 @@ conn.commit()
 cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'test'")
 if cursor.fetchone()[0] == 0:
     salt = generate_salt()
-    key = derive_key(TEST_MASTER_KEY, salt)
+    key = derive_key(MASTER_KEY, salt)
     encrypted_password = encrypt_data('pass', key)
     cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
                    ('test', encrypted_password, base64.b64encode(salt).decode(), 'h'))
@@ -115,7 +112,7 @@ if cursor.fetchone()[0] == 0:
 cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'test2'")
 if cursor.fetchone()[0] == 0:
     salt = generate_salt()
-    key = derive_key(TEST_MASTER_KEY, salt)
+    key = derive_key(MASTER_KEY, salt)
     encrypted_password = encrypt_data('pass', key)
     cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
                    ('test2', encrypted_password, base64.b64encode(salt).decode(), 'r'))
@@ -129,7 +126,7 @@ if patient_count < 100:
         username = fake.user_name()
         password = fake.password()
         user_salt = generate_salt()
-        user_key = derive_key(TEST_MASTER_KEY, user_salt)
+        user_key = derive_key(MASTER_KEY, user_salt)
         encrypted_password = encrypt_data(password, user_key)
         user_type = random.choice(['h', 'r'])  # 'h' for no first last name, 'r' for all
 
@@ -140,7 +137,7 @@ if patient_count < 100:
 
         # Generate and encrypt patient data
         patient_salt = generate_salt()
-        patient_key = derive_key(TEST_MASTER_KEY, patient_salt)
+        patient_key = derive_key(MASTER_KEY, patient_salt)
 
         first_name = fake.first_name()
         last_name = fake.last_name()
@@ -169,7 +166,7 @@ conn.close()
 #get data from patients database and view in window
 ############################################################################
 def fetch_patients(is_admin, search_criteria=None):
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = sqlite3.connect(HOSPITAL_DB)
     cursor = conn.cursor()
     
     # Base query for fetching data
@@ -185,14 +182,20 @@ def fetch_patients(is_admin, search_criteria=None):
         if 'last_name' in search_criteria and search_criteria['last_name']:
             conditions.append("last_name IS NOT NULL")  # Same here for last name
         if 'weight' in search_criteria and search_criteria['weight']:
-            conditions.append("weight = ?")
-            params.append(search_criteria['weight'])
+            # Added a tolerance since some of the Faker numbers are Strange
+            tolerance = 5
+            conditions.append("(weight BETWEEN ? AND ?)")
+            params.append(search_criteria['weight'] - tolerance)
+            params.append(search_criteria['weight'] + tolerance)
         if 'gender' in search_criteria and search_criteria['gender']:
             conditions.append("gender = ?")
             params.append(search_criteria['gender'])
         if 'height' in search_criteria and search_criteria['height']:
-            conditions.append("height = ?")
-            params.append(search_criteria['height'])
+            # Added tolerance since some of the Faker numbers are strange
+            tolerance = 0.05
+            conditions.append("(height BETWEEN ? AND ?)")
+            params.append(search_criteria['height'] - tolerance)
+            params.append(search_criteria['height'] + tolerance)
         if 'age' in search_criteria and search_criteria['age']:
             conditions.append("age = ?")
             params.append(search_criteria['age'])
@@ -209,7 +212,7 @@ def fetch_patients(is_admin, search_criteria=None):
     for row in rows:
         encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history, stored_salt = row
         stored_salt = base64.b64decode(stored_salt)
-        key = derive_key(TEST_MASTER_KEY, stored_salt)  # Derive the key
+        key = derive_key(MASTER_KEY, stored_salt)  # Derive the key
 
         # Decrypt values
         decrypted_first_name = decrypt_data(encrypted_first_name, key)
@@ -246,10 +249,6 @@ def fetch_patients(is_admin, search_criteria=None):
             ))
 
     return decrypted_rows
-
-
-
-
 
 # Function to create a search window
 def search_patients(is_admin):
@@ -321,7 +320,6 @@ def search_patients(is_admin):
     search_button = tk.Button(search_window, text="Search", command=perform_search)
     search_button.grid(row=6, column=0, columnspan=2, pady=10)
 
-
 def display_patients(is_admin):
     patients = fetch_patients(is_admin)  # Fetch and decrypt patient data
 
@@ -333,7 +331,6 @@ def display_patients(is_admin):
     for patient in patients:
         tree.insert("", "end", values=patient)
 
-
 # Function to show the patient list window
 def show_patient_list(is_admin):
     global tree
@@ -342,7 +339,7 @@ def show_patient_list(is_admin):
     patient_window.title("Patients Database Viewer")
 
     # Create a Treeview widget to display the patient data
-    tree = ttk.Treeview(patient_window, columns=("First Name", "Last Name", "Gender", "Age", "Weight", "Height", "Health History"), show="headings")
+    tree = ttk.Treeview(patient_window, columns=("First Name", "Last Name", "Gender", "Age", "Weight", "Height", "Health History"), show="headings", height=5)
 
     # Define headings for the columns
     tree.heading("First Name", text="First Name")
@@ -368,67 +365,93 @@ def show_patient_list(is_admin):
     scrollbar.pack(side="right", fill="y")
 
     # Pack the Treeview widget
-    tree.pack(padx=10, pady=10)
+    tree.pack(padx=10, pady=10, expand=True, fill="both")
 
-    # Add a button to fetch and display patient data
-    button = tk.Button(patient_window, text="Load Patients", command=lambda: display_patients(is_admin))
-    button.pack(pady=10)
+    #Added a label for the health history
+    health_history_label = tk.Label(patient_window, text="Health History Summary")
+    health_history_label.pack(padx=10, pady=(10, 5))
 
-    search_button = tk.Button(patient_window, text="Search Patients", command=lambda: search_patients(is_admin))
-    search_button.pack(pady=10)
+    # Add a Text widget to display the "Health History" stuff
+    health_history_text = tk.Text(patient_window, height=5, wrap=tk.WORD)
+    health_history_text.pack(padx=10, pady=10, fill="x")
 
-    # Add a button to open the add patient window (for admins)
-    if(is_admin):
-        add_patient_button = tk.Button(patient_window, text="Add Patient", command=lambda: add_patient(is_admin))
-        add_patient_button.pack(pady=10)
+    # Function to update the Text widget with Health History content
+    def show_health_history(event):
+        selected_item = tree.selection()
+        if selected_item:
+            item = tree.item(selected_item)
+            health_history_text.delete("1.0", tk.END)
+            health_history_text.insert(tk.END, item["values"][-1])  # Last column is Health History
 
+    # Bind the Treeview selection to update the Text widget
+    tree.bind("<<TreeviewSelect>>", show_health_history)
+
+    # Create a frame to hold the buttons in a row
+    button_frame = tk.Frame(patient_window)
+    button_frame.pack(pady=10)  # Add vertical padding for spacing
+
+    # Add buttons to the frame
+    load_button = tk.Button(button_frame, text="Load Patients", command=lambda: display_patients(is_admin))
+    load_button.pack(side=tk.LEFT, padx=5)  # Add horizontal padding for spacing
+
+    search_button = tk.Button(button_frame, text="Search Patients", command=lambda: search_patients(is_admin))
+    search_button.pack(side=tk.LEFT, padx=5)
+
+    if is_admin:
+        add_patient_button = tk.Button(button_frame, text="Add Patient", command=lambda: manage_patient(is_admin))
+        add_patient_button.pack(side=tk.LEFT, padx=5)
 
     # Run the Tkinter main loop for the patient list window
     patient_window.mainloop()
 
-
-def add_patient(is_admin):
+def manage_patient(is_admin):
     if not is_admin:
-        messagebox.showerror("Permission Denied", "You do not have the necessary privileges to add a patient.")
+        messagebox.showerror("Permission Denied", "You do not have the necessary privileges.")
         return
 
-    # Create a new window to get patient data
-    add_patient_window = tk.Toplevel()
-    add_patient_window.title("Add Patient")
+    # Create a new window to manage patient data
+    manage_patient_window = tk.Toplevel()
+    manage_patient_window.title("Manage Patient")
 
-    # Define labels and entry fields for patient details
-    tk.Label(add_patient_window, text="First Name").grid(row=0, column=0, padx=5, pady=5)
-    first_name_entry = tk.Entry(add_patient_window)
+    # Create common input fields for both actions
+    tk.Label(manage_patient_window, text="First Name").grid(row=0, column=0, padx=5, pady=5)
+    first_name_entry = tk.Entry(manage_patient_window)
     first_name_entry.grid(row=0, column=1, padx=5, pady=5)
 
-    tk.Label(add_patient_window, text="Last Name").grid(row=1, column=0, padx=5, pady=5)
-    last_name_entry = tk.Entry(add_patient_window)
+    tk.Label(manage_patient_window, text="Last Name").grid(row=1, column=0, padx=5, pady=5)
+    last_name_entry = tk.Entry(manage_patient_window)
     last_name_entry.grid(row=1, column=1, padx=5, pady=5)
 
-    tk.Label(add_patient_window, text="Gender (M/F)").grid(row=2, column=0, padx=5, pady=5)
-    gender_entry = tk.Entry(add_patient_window)
+    # Additional fields for adding a patient
+    tk.Label(manage_patient_window, text="Gender (M/F)").grid(row=2, column=0, padx=5, pady=5)
+    gender_entry = tk.Entry(manage_patient_window)
     gender_entry.grid(row=2, column=1, padx=5, pady=5)
 
-    tk.Label(add_patient_window, text="Age").grid(row=3, column=0, padx=5, pady=5)
-    age_entry = tk.Entry(add_patient_window)
+    tk.Label(manage_patient_window, text="Age").grid(row=3, column=0, padx=5, pady=5)
+    age_entry = tk.Entry(manage_patient_window)
     age_entry.grid(row=3, column=1, padx=5, pady=5)
 
-    tk.Label(add_patient_window, text="Weight").grid(row=4, column=0, padx=5, pady=5)
-    weight_entry = tk.Entry(add_patient_window)
+    tk.Label(manage_patient_window, text="Weight").grid(row=4, column=0, padx=5, pady=5)
+    weight_entry = tk.Entry(manage_patient_window)
     weight_entry.grid(row=4, column=1, padx=5, pady=5)
 
-    tk.Label(add_patient_window, text="Height").grid(row=5, column=0, padx=5, pady=5)
-    height_entry = tk.Entry(add_patient_window)
+    tk.Label(manage_patient_window, text="Height").grid(row=5, column=0, padx=5, pady=5)
+    height_entry = tk.Entry(manage_patient_window)
     height_entry.grid(row=5, column=1, padx=5, pady=5)
 
-    tk.Label(add_patient_window, text="Health History").grid(row=6, column=0, padx=5, pady=5)
-    health_history_entry = tk.Entry(add_patient_window)
+    tk.Label(manage_patient_window, text="Health History").grid(row=6, column=0, padx=5, pady=5)
+    health_history_entry = tk.Entry(manage_patient_window)
     health_history_entry.grid(row=6, column=1, padx=5, pady=5)
 
-    # Function to encrypt and insert the new patient data into the database
+    # Function to add a new patient
     def save_patient():
         first_name = first_name_entry.get()
         last_name = last_name_entry.get()
+
+        if not first_name or not last_name:
+            messagebox.showerror("Input Error", "Please provide both First Name and Last Name.")
+            return
+
         gender = gender_entry.get().upper() == 'M'  # Convert to boolean (True for Male, False for Female)
         age = int(age_entry.get())
         weight = float(weight_entry.get())
@@ -437,7 +460,7 @@ def add_patient(is_admin):
 
         # Generate salt and derive key for encryption
         salt = generate_salt()
-        key = derive_key(TEST_MASTER_KEY, salt)
+        key = derive_key(MASTER_KEY, salt)
 
         # Encrypt sensitive patient data
         encrypted_first_name = encrypt_data(first_name, key)
@@ -445,23 +468,22 @@ def add_patient(is_admin):
         encrypted_health_history = encrypt_data(health_history, key)
 
         # Insert patient data into the database
-        conn = sqlite3.connect(DATABASE_NAME)
+        conn = sqlite3.connect(HOSPITAL_DB)
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO patients (first_name, last_name, gender, age, weight, height, health_history, salt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history, base64.b64encode(salt).decode()))
+        cursor.execute(""" 
+            INSERT INTO patients (first_name, last_name, gender, age, weight, height, health_history, salt) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
+        """, (encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history,
+              base64.b64encode(salt).decode()))
         conn.commit()
         conn.close()
 
         messagebox.showinfo("Success", "Patient added successfully.")
-        add_patient_window.destroy()
+        manage_patient_window.destroy()
 
-    # Add a button to save the patient data
-    save_button = tk.Button(add_patient_window, text="Add Patient", command=save_patient)
-    save_button.grid(row=7, column=0, columnspan=2, pady=10)
-
-
+    # Add Button (calls save_patient to add a new patient)
+    add_button = tk.Button(manage_patient_window, text="Add Patient", command=save_patient)
+    add_button.grid(row=8, column=0, columnspan=2, pady=10)
 
 ###################################################
 #login window and functionality
@@ -473,7 +495,7 @@ def login():
     username = username_entry.get()
     password = password_entry.get()
 
-    conn = sqlite3.connect(DATABASE_NAME)
+    conn = sqlite3.connect(HOSPITAL_DB)
     cursor = conn.cursor()
     
     # Fetch user info for the entered username, including user_type
@@ -483,7 +505,7 @@ def login():
     if user:
         encrypted_password, stored_salt, user_type = user  # Retrieve user_type
         stored_salt = base64.b64decode(stored_salt)
-        key = derive_key(TEST_MASTER_KEY, stored_salt)  # Derive the key
+        key = derive_key(MASTER_KEY, stored_salt)  # Derive the key
         decrypted_password = decrypt_data(encrypted_password, key)
         
         if password == decrypted_password:  # Compare the decrypted password
@@ -507,15 +529,15 @@ def create_login_window():
 
     # Username label and entry
     username_label = tk.Label(login_window, text="Username")
-    username_label.pack(pady=5)
+    username_label.pack(pady=5, padx=55)
     username_entry = tk.Entry(login_window)
-    username_entry.pack(pady=5)
+    username_entry.pack(pady=5, padx=55)
 
     # Password label and entry
     password_label = tk.Label(login_window, text="Password")
-    password_label.pack(pady=5)
+    password_label.pack(pady=5, padx=55)
     password_entry = tk.Entry(login_window, show="*")
-    password_entry.pack(pady=5)
+    password_entry.pack(pady=5, padx=55)
 
     # Login button
     login_button = tk.Button(login_window, text="Login", command=login)
