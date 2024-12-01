@@ -30,7 +30,7 @@ and make project report
 //////////////////
 
 HOW TO RUN
-1. paste "set MASTER_KEY=super_secure_master_key" in terminal (can set as any key but must delete db or 
+1. paste "$env:MASTER_KEY="super_secure_master_key" in terminal (can set as any key but must delete db or 
 set database name to a new name for the key)
 2. python main.py in terminal
 3. can log into database with username test and password pass for h permissions and can log in with test2 as 
