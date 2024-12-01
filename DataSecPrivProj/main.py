@@ -13,21 +13,15 @@ import string
 import math
 import base64
 from faker import Faker
+import hashlib
 
-# Start with False Admin Flag!
-is_admin = False
-
-############################################################
-#encryption and decryption 
-############################################################
 # MASTER_KEY = b'super_secure_master_key'
-# MASTER KEY STUFF
 MASTER_KEY = os.getenv("MASTER_KEY")
 
 if not MASTER_KEY:
     raise ValueError("Error: MASTER_KEY environment variable is not set!")
 
-# Convert to bytes 
+# Convert to bytes
 if isinstance(MASTER_KEY, str):
     MASTER_KEY = MASTER_KEY.encode()  # Convert the string to bytes
 
@@ -62,9 +56,22 @@ def decrypt_data(encrypted_data, key):
 def generate_salt():
     return os.urandom(16)
 
-##################################################################
-# Database creation if not made and fill
-##################################################################
+# Hashing the data (using SHA-256)
+def hash_data(data):
+    hash_object = hashlib.sha256(data.encode())
+    return hash_object.hexdigest()
+
+# Verifying hash after decryption
+def verify_data_integrity(encrypted_data, key, stored_hash):
+    decrypted_data = decrypt_data(encrypted_data, key)
+    # Compute the hash of the decrypted data
+    computed_hash = hash_data(decrypted_data)
+    # Compare the computed hash with the stored hash
+    return computed_hash == stored_hash
+
+###########################################################
+# Database creation if not made and filling with users
+###########################################################
 HOSPITAL_DB = 'Hospital.db'
 
 # Initialize Faker instance
@@ -74,11 +81,11 @@ fake = Faker()
 conn = sqlite3.connect(HOSPITAL_DB)
 cursor = conn.cursor()
 
-# Create tables with salt in patients table
+# Create tables with salt in patients table (updated to not store the plain password)
 cursor.execute('''CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
-    password TEXT NOT NULL,
+    passwordhash TEXT NOT NULL,  -- Storing password hash only
     salt TEXT NOT NULL,
     user_type TEXT NOT NULL
 )''')
@@ -94,28 +101,38 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS patients (
     height REAL NOT NULL,
     health_history TEXT,
     salt TEXT NOT NULL,  -- Added salt field for each patient
+    patient_data_hash TEXT,  -- Add the missing column for patient data hash
     FOREIGN KEY (user_id) REFERENCES users(id)
 )''')
 
 conn.commit()
 
 # Check if the "test" user exists, if not add it
+# Check if the "test" user exists, if not add it
 cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'test'")
 if cursor.fetchone()[0] == 0:
-    salt = generate_salt()
-    key = derive_key(MASTER_KEY, salt)
-    encrypted_password = encrypt_data('pass', key)
-    cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
-                   ('test', encrypted_password, base64.b64encode(salt).decode(), 'h'))
+    salt = generate_salt()  # Generate salt for the user
+    key = derive_key(MASTER_KEY, salt)  # Derive the key
+    encrypted_password = encrypt_data('pass', key)  # Encrypt password using the derived key
+
+    password_hash = hash_data('pass')  # Hash the password for storage
+
+    # Insert the user (username, encrypted password, password hash, salt, user type)
+    cursor.execute("INSERT INTO users (username, passwordhash, salt, user_type) VALUES (?, ?, ?, ?)",
+                   ('test', password_hash, base64.b64encode(salt).decode(), 'h'))
 
 # Check if the "test2" user exists, if not add it
 cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'test2'")
 if cursor.fetchone()[0] == 0:
-    salt = generate_salt()
-    key = derive_key(MASTER_KEY, salt)
-    encrypted_password = encrypt_data('pass', key)
-    cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
-                   ('test2', encrypted_password, base64.b64encode(salt).decode(), 'r'))
+    salt = generate_salt()  # Generate salt for the user
+    key = derive_key(MASTER_KEY, salt)  # Derive the key
+    encrypted_password = encrypt_data('pass', key)  # Encrypt password using the derived key
+
+    password_hash = hash_data('pass')  # Hash the password for storage
+
+    # Insert the user (username, encrypted password, password hash, salt, user type)
+    cursor.execute("INSERT INTO users (username, passwordhash, salt, user_type) VALUES (?, ?, ?, ?)",
+                   ('test2', password_hash, base64.b64encode(salt).decode(), 'r'))
 
 # Generate and encrypt fake patient data
 cursor.execute("SELECT COUNT(*) FROM patients")
@@ -130,10 +147,12 @@ if patient_count < 100:
         encrypted_password = encrypt_data(password, user_key)
         user_type = random.choice(['h', 'r'])  # 'h' for no first last name, 'r' for all
 
+        # Hash the password for storage
+        user_password_hash = hash_data(password)
 
-        cursor.execute("INSERT INTO users (username, password, salt, user_type) VALUES (?, ?, ?, ?)",
-                       (username, encrypted_password, base64.b64encode(user_salt).decode(), user_type))
-        user_id = cursor.lastrowid
+        cursor.execute("INSERT INTO users (username, salt, user_type, passwordhash) VALUES (?, ?, ?, ?)",
+                       (username, base64.b64encode(user_salt).decode(), user_type, user_password_hash))
+        user_id = cursor.lastrowid  # Get the last inserted user ID
 
         # Generate and encrypt patient data
         patient_salt = generate_salt()
@@ -147,15 +166,24 @@ if patient_count < 100:
         height = round(random.uniform(4.5, 6.5), 2)
         health_history = fake.text(max_nb_chars=200)
 
+        # Hash patient data before encryption (for integrity check)
+        patient_data_string = f"{first_name}{last_name}{gender}{age}{weight}{height}{health_history}"
+        patient_data_hash = hash_data(patient_data_string)
+
         encrypted_first_name = encrypt_data(first_name, patient_key)
         encrypted_last_name = encrypt_data(last_name, patient_key)
+        encrypted_gender = encrypt_data(str(gender), patient_key)
+        encrypted_age = encrypt_data(str(age), patient_key)
+        encrypted_weight = encrypt_data(str(weight), patient_key)
+        encrypted_height = encrypt_data(str(height), patient_key)
         encrypted_health_history = encrypt_data(health_history, patient_key)
 
-        cursor.execute('''INSERT INTO patients (user_id, first_name, last_name, gender, age, weight, height, health_history, salt)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                       (user_id, encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history,
-                        base64.b64encode(patient_salt).decode()))
+        cursor.execute('''INSERT INTO patients (user_id, first_name, last_name, gender, age, weight, height, health_history, salt, patient_data_hash)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                       (user_id, encrypted_first_name, encrypted_last_name, encrypted_gender, encrypted_age, encrypted_weight, encrypted_height, encrypted_health_history,
+                        base64.b64encode(patient_salt).decode(), patient_data_hash))
 
+# Commit the changes and close the connection
 conn.commit()
 conn.close()
 
@@ -168,25 +196,25 @@ conn.close()
 def fetch_patients(is_admin, search_criteria=None):
     conn = sqlite3.connect(HOSPITAL_DB)
     cursor = conn.cursor()
-    
+
     # Base query for fetching data
     query = "SELECT first_name, last_name, gender, age, weight, height, health_history, salt FROM patients"
-    
+
     # Add filter conditions based on the search criteria provided
     conditions = []
     params = []
-    
+
     if search_criteria:
         if 'first_name' in search_criteria and search_criteria['first_name']:
             conditions.append("first_name IS NOT NULL")  # Placeholder to fetch all records, as search happens in Python
         if 'last_name' in search_criteria and search_criteria['last_name']:
             conditions.append("last_name IS NOT NULL")  # Same here for last name
         if 'weight' in search_criteria and search_criteria['weight']:
-            # Added a tolerance since some of the Faker numbers are Strange
+            # Added a tolerance since some of the Faker numbers are strange
             tolerance = 5
             conditions.append("(weight BETWEEN ? AND ?)")
-            params.append(search_criteria['weight'] - tolerance)
-            params.append(search_criteria['weight'] + tolerance)
+            params.append(float(search_criteria['weight']) - tolerance)  # Convert weight to float
+            params.append(float(search_criteria['weight']) + tolerance)  # Convert weight to float
         if 'gender' in search_criteria and search_criteria['gender']:
             conditions.append("gender = ?")
             params.append(search_criteria['gender'])
@@ -194,12 +222,12 @@ def fetch_patients(is_admin, search_criteria=None):
             # Added tolerance since some of the Faker numbers are strange
             tolerance = 0.05
             conditions.append("(height BETWEEN ? AND ?)")
-            params.append(search_criteria['height'] - tolerance)
-            params.append(search_criteria['height'] + tolerance)
+            params.append(float(search_criteria['height']) - tolerance)  # Convert height to float
+            params.append(float(search_criteria['height']) + tolerance)  # Convert height to float
         if 'age' in search_criteria and search_criteria['age']:
             conditions.append("age = ?")
-            params.append(search_criteria['age'])
-    
+            params.append(int(search_criteria['age']))  # Convert age to integer
+
     # Append conditions to the base query if any
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
@@ -210,7 +238,7 @@ def fetch_patients(is_admin, search_criteria=None):
 
     decrypted_rows = []
     for row in rows:
-        encrypted_first_name, encrypted_last_name, gender, age, weight, height, encrypted_health_history, stored_salt = row
+        encrypted_first_name, encrypted_last_name, encrypted_gender, encrypted_age, encrypted_weight, encrypted_height, encrypted_health_history, stored_salt = row
         stored_salt = base64.b64decode(stored_salt)
         key = derive_key(MASTER_KEY, stored_salt)  # Derive the key
 
@@ -218,69 +246,84 @@ def fetch_patients(is_admin, search_criteria=None):
         decrypted_first_name = decrypt_data(encrypted_first_name, key)
         decrypted_last_name = decrypt_data(encrypted_last_name, key)
         decrypted_health_history = decrypt_data(encrypted_health_history, key)
+        decrypted_gender = decrypt_data(encrypted_gender, key)
+        decrypted_age = decrypt_data(encrypted_age, key)
+        decrypted_weight = decrypt_data(encrypted_weight, key)
+        decrypted_height = decrypt_data(encrypted_height, key)
+
+        # Convert decrypted values back to their correct types
+        decrypted_gender = decrypted_gender == "True"  # Convert back to boolean
+        decrypted_age = int(decrypted_age)  # Convert back to integer
+        decrypted_weight = float(decrypted_weight)  # Convert back to float
+        decrypted_height = float(decrypted_height)  # Convert back to float
 
         # Filter based on search criteria in Python
         if search_criteria:
-            if 'first_name' in search_criteria and search_criteria['first_name'].lower() not in decrypted_first_name.lower():
+            if 'first_name' in search_criteria and search_criteria[
+                'first_name'].lower() not in decrypted_first_name.lower():
                 continue
-            if 'last_name' in search_criteria and search_criteria['last_name'].lower() not in decrypted_last_name.lower():
+            if 'last_name' in search_criteria and search_criteria[
+                'last_name'].lower() not in decrypted_last_name.lower():
                 continue
 
         # Append decrypted data to the list
         if is_admin:
-            decrypted_rows.append((
+            decrypted_rows.append((  # Admin can see all details
                 decrypted_first_name,
                 decrypted_last_name,
-                'Male' if gender else 'Female',
-                age,
-                weight,
-                height,
+                'Male' if decrypted_gender else 'Female',
+                decrypted_age,
+                decrypted_weight,
+                decrypted_height,
                 decrypted_health_history,
             ))
         else:
-            decrypted_rows.append((
+            decrypted_rows.append((  # Non-admin sees limited info
                 "Anonymous",
                 "Anonymous",
-                'Male' if gender else 'Female',
-                age,
-                weight,
-                height,
+                'Male' if decrypted_gender else 'Female',
+                decrypted_age,
+                decrypted_weight,
+                decrypted_height,
                 decrypted_health_history,
             ))
 
     return decrypted_rows
 
+
 # Function to create a search window
 def search_patients(is_admin):
     def perform_search():
-        if(is_admin):
-            filters = {
-                'first_name': first_name_entry.get(),
-                'last_name': last_name_entry.get(),
-                'gender': gender_entry.get().strip().lower() if gender_entry.get() else None,
-                'age': age_entry.get() if age_entry.get() else None,
-                'weight': weight_entry.get() if weight_entry.get() else None,
-                'height': height_entry.get() if height_entry.get() else None,
-            }
-        else: 
-            filters = {
-                'gender': gender_entry.get().strip().lower() if gender_entry.get() else None,
-                'age': age_entry.get() if age_entry.get() else None,
-                'weight': weight_entry.get() if weight_entry.get() else None,
-                'height': height_entry.get() if height_entry.get() else None,
+        filters = {
+            'first_name': first_name_entry.get() if first_name_entry.get() else None,
+            'last_name': last_name_entry.get() if last_name_entry.get() else None,
+            'gender': gender_entry.get().strip().lower() if gender_entry.get() else None,
+            'age': age_entry.get() if age_entry.get() else None,
+            'weight': weight_entry.get() if weight_entry.get() else None,
+            'height': height_entry.get() if height_entry.get() else None,
         }
-        
-        # Convert age, weight, and height to integers if provided
-        if filters['age']:
-            filters['age'] = int(filters['age'])
-        if filters['weight']:
-            filters['weight'] = float(filters['weight'])
-        if filters['height']:
-            filters['height'] = float(filters['height'])
 
+        # Handle gender as 'male' and 'female' or None
+        if filters['gender'] == '1':
+            filters['gender'] = 'male'
+        elif filters['gender'] == '0':
+            filters['gender'] = 'female'
+
+        # Convert age, weight, and height to integers/floats if provided
+        if filters['age']:
+            filters['age'] = str(int(filters['age']))  # Convert to string representation
+        if filters['weight']:
+            filters['weight'] = str(float(filters['weight']))  # Convert to string representation
+        if filters['height']:
+            filters['height'] = str(float(filters['height']))  # Convert to string representation
+
+        # Remove filters that are still None or empty (this avoids unnecessary database search criteria)
+        filters = {key: value for key, value in filters.items() if value is not None}
+
+        # Fetch patients with the filters
         patients = fetch_patients(is_admin, filters)
-        
-        # Clear existing data
+
+        # Clear existing data in the Treeview
         for row in tree.get_children():
             tree.delete(row)
 
@@ -292,16 +335,16 @@ def search_patients(is_admin):
     search_window = tk.Toplevel()
     search_window.title("Search Patients")
 
-    if(is_admin):
+    if is_admin:
         tk.Label(search_window, text="First Name").grid(row=0, column=0, padx=5, pady=5)
         first_name_entry = tk.Entry(search_window)
         first_name_entry.grid(row=0, column=1, padx=5, pady=5)
-    if(is_admin):
+
         tk.Label(search_window, text="Last Name").grid(row=1, column=0, padx=5, pady=5)
         last_name_entry = tk.Entry(search_window)
         last_name_entry.grid(row=1, column=1, padx=5, pady=5)
 
-    tk.Label(search_window, text="Gender (1 for M/0 for F)").grid(row=2, column=0, padx=5, pady=5)
+    tk.Label(search_window, text="Gender (1 for Male, 0 for Female)").grid(row=2, column=0, padx=5, pady=5)
     gender_entry = tk.Entry(search_window)
     gender_entry.grid(row=2, column=1, padx=5, pady=5)
 
@@ -319,6 +362,7 @@ def search_patients(is_admin):
 
     search_button = tk.Button(search_window, text="Search", command=perform_search)
     search_button.grid(row=6, column=0, columnspan=2, pady=10)
+
 
 def display_patients(is_admin):
     patients = fetch_patients(is_admin)  # Fetch and decrypt patient data
@@ -495,28 +539,31 @@ def login():
 
     conn = sqlite3.connect(HOSPITAL_DB)
     cursor = conn.cursor()
-    
-    # Fetch user info for the entered username, including user_type
-    cursor.execute("SELECT password, salt, user_type FROM users WHERE username = ?", (username,))
+
+    # Fetch user info for the entered username, including passwordhash, salt, and user_type
+    cursor.execute("SELECT passwordhash, salt, user_type FROM users WHERE username = ?", (username,))
     user = cursor.fetchone()
-    
+
     if user:
-        encrypted_password, stored_salt, user_type = user  # Retrieve user_type
-        stored_salt = base64.b64decode(stored_salt)
-        key = derive_key(MASTER_KEY, stored_salt)  # Derive the key
-        decrypted_password = decrypt_data(encrypted_password, key)
-        
-        if password == decrypted_password:  # Compare the decrypted password
+        stored_password_hash, stored_salt, user_type = user  # Retrieve password hash and user type
+        stored_salt = base64.b64decode(stored_salt)  # Decode the salt from base64
+        key = derive_key(MASTER_KEY, stored_salt)  # Derive the key using the salt
+
+        # Hash the entered password
+        entered_password_hash = hash_data(password)  # Hash the entered password
+
+        if entered_password_hash == stored_password_hash:  # Compare the password hashes
             login_window.destroy()  # Close login window
-            
+
             # Determine if the user is an admin (user_type is 'h') or regular (user_type is 'r')
             is_admin = (user_type == 'h')
             show_patient_list(is_admin)  # Show the patient list with is_admin status
             conn.close()
             return
-    
+
     conn.close()
     messagebox.showerror("Login Failed", "Invalid username or password. Please try again.")
+
 
 # Function to create the login window
 def create_login_window():
