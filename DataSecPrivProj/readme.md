@@ -16,5 +16,5 @@ open and paste 'SQLite: Open Database' in the search and then it should work
 your db and do open database from the menu and the database will show in bottom left explorer
 
 
-- can log into database with username test and password pass for h permissions and can log in with test2 
-as username and pass as password for r permissions (only 2 pass and usernames that works every time)
+- can log into database with username admin and password admin for h permissions and can log in with user 
+as username and user as password for r permissions (only 2 pass and usernames that works every time)
