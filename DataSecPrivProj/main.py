@@ -15,6 +15,11 @@ import base64
 from faker import Faker
 import hashlib
 
+
+####################
+# Encryption Stuff #
+####################
+
 # MASTER_KEY = b'super_secure_master_key'
 MASTER_KEY = os.getenv("MASTER_KEY")
 
@@ -64,10 +69,20 @@ def hash_data(data):
 # Verifying hash after decryption
 def verify_data_integrity(encrypted_data, key, stored_hash):
     decrypted_data = decrypt_data(encrypted_data, key)
-    # Compute the hash of the decrypted data
     computed_hash = hash_data(decrypted_data)
-    # Compare the computed hash with the stored hash
     return computed_hash == stored_hash
+
+# Function that allows for us to use checksum to validate data
+def generate_row_checksum(patient_data):
+    if 'patient_data_hash' in patient_data:
+        return patient_data['patient_data_hash']
+    # Convert the dictionary to a string and generate a checksum (using SHA256 for better security!!)
+    checksum_string = str(patient_data)
+    return hashlib.sha256(checksum_string.encode()).hexdigest()  # Now encode the string for checksum generation
+
+####################
+#    Init Stuff    #
+####################
 
 HOSPITAL_DB = 'Hospital.db'
 
@@ -104,31 +119,27 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS patients (
 
 conn.commit()
 
-# Check if the "test" user exists, if not add it
-cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'test'")
+# Check if the "admin" user exists, if not add it
+cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'admin'")
 if cursor.fetchone()[0] == 0:
     salt = generate_salt()  # Generate salt for the user
     key = derive_key(MASTER_KEY, salt)  # Derive the key
-    encrypted_password = encrypt_data('pass', key)  # Encrypt password using the derived key
-
-    password_hash = hash_data('pass')  # Hash the password for storage
+    password_hash = hash_data('admin')  # Hash the password for storage
 
     # Insert the user (username, encrypted password, password hash, salt, user type)
     cursor.execute("INSERT INTO users (username, passwordhash, salt, user_type) VALUES (?, ?, ?, ?)",
-                   ('test', password_hash, base64.b64encode(salt).decode(), 'h'))
+                   ('admin', password_hash, base64.b64encode(salt).decode(), 'h'))
 
-# Check if the "test2" user exists, if not add it
-cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'test2'")
+# Check if the "user" user exists, if not add it
+cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'user'")
 if cursor.fetchone()[0] == 0:
     salt = generate_salt()  # Generate salt for the user
     key = derive_key(MASTER_KEY, salt)  # Derive the key
-    encrypted_password = encrypt_data('pass', key)  # Encrypt password using the derived key
-
-    password_hash = hash_data('pass')  # Hash the password for storage
+    password_hash = hash_data('user')  # Hash the password for storage
 
     # Insert the user (username, encrypted password, password hash, salt, user type)
     cursor.execute("INSERT INTO users (username, passwordhash, salt, user_type) VALUES (?, ?, ?, ?)",
-                   ('test2', password_hash, base64.b64encode(salt).decode(), 'r'))
+                   ('user', password_hash, base64.b64encode(salt).decode(), 'r'))
 
 # Generate and encrypt fake patient data
 cursor.execute("SELECT COUNT(*) FROM patients")
@@ -183,27 +194,10 @@ if patient_count < 100:
 conn.commit()
 conn.close()
 
-#############################################################################
-#get data from patients database and view in window
-############################################################################
-def generate_row_checksum(patient_data):
-    """Generate a checksum for a single data row."""
-    # If patient data includes hash, use it for integrity check
-    if 'patient_data_hash' in patient_data:
-        return patient_data['patient_data_hash']  # Use the pre-generated hash from patient data
-    # Convert the dictionary to a string and generate a checksum (using SHA256 for better security)
-    checksum_string = str(patient_data)  # Convert the dictionary to a string
-    return hashlib.sha256(checksum_string.encode()).hexdigest()  # Now encode the string for checksum generation
+####################
+#   Patient Stuff  #
+####################
 
-
-def generate_query_checksum(rows):
-    # Generate a checksum for an entire query result set.
-    concatenated_data = "".join([str(row) for row in rows])
-    return hashlib.md5(concatenated_data.encode()).hexdigest()
-
-###########################################################
-# Database creation if not made and filling with users
-###########################################################
 # Main function to fetch patients
 def fetch_patients(is_admin, search_criteria=None):
     conn = sqlite3.connect(HOSPITAL_DB)
@@ -299,8 +293,6 @@ def fetch_patients(is_admin, search_criteria=None):
 
     return filtered_rows
 
-
-
 # Function to create a search window
 def search_patients(is_admin):
     def perform_search():
@@ -320,9 +312,6 @@ def search_patients(is_admin):
                 'weight': weight_entry.get() if weight_entry.get() else None,
                 'height': height_entry.get() if height_entry.get() else None,
             }
-
-        # Debug: Print filters before type conversion
-        print("Filters before type conversion:", filters)
 
         # Handle gender as 'male' and 'female' or None
         if filters['gender'] == '1':
@@ -350,14 +339,8 @@ def search_patients(is_admin):
                 print("Invalid height value provided:", filters['height'])
                 filters['height'] = None  # Reset if conversion fails
 
-        # Debug: Print filters after type conversion
-        print("Filters after type conversion:", filters)
-
         # Remove filters that are still None or empty
         filters = {key: value for key, value in filters.items() if value is not None}
-
-        # Debug: Print the final filters before passing to fetch_patients
-        print("Final filters passed to fetch_patients:", filters)
 
         # Fetch patients with the filters
         patients = fetch_patients(is_admin, filters)
@@ -402,6 +385,7 @@ def search_patients(is_admin):
     search_button = tk.Button(search_window, text="Search", command=perform_search)
     search_button.grid(row=6, column=0, columnspan=2, pady=10)
 
+# Inserts the patients into tKinter
 def display_patients(is_admin):
     patients = fetch_patients(is_admin)  # Fetch and decrypt patient data
 
@@ -486,6 +470,7 @@ def show_patient_list(is_admin):
     # Run the Tkinter main loop for the patient list window
     patient_window.mainloop()
 
+# Allows admin to add a patient
 def manage_patient(is_admin):
     if not is_admin:
         messagebox.showerror("Permission Denied", "You do not have the necessary privileges.")
@@ -578,6 +563,9 @@ def manage_patient(is_admin):
     add_button = tk.Button(manage_patient_window, text="Add Patient", command=save_patient)
     add_button.grid(row=8, column=0, columnspan=2, pady=10)
 
+##########################
+#   Initial Login Stuff  #
+##########################
 # Function to log in to login window
 def login():
     username = username_entry.get()
